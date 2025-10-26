@@ -48,15 +48,15 @@ export const useEvolutionInstance = () => {
     }
   };
 
-  // Create new instance
-  const createInstance = async () => {
+  // Create new instance or refresh QR code
+  const createInstance = async (forceRefresh?: boolean) => {
     setLoading(true);
     setError(null);
 
     try {
       const { data, error: functionError } = await supabase.functions.invoke(
         'create-evolution-instance',
-        { body: {} }
+        { body: { forceRefresh: forceRefresh || false } }
       );
 
       if (functionError) throw functionError;
@@ -64,8 +64,10 @@ export const useEvolutionInstance = () => {
       if (data?.success && data?.instance) {
         setInstance(data.instance);
         toast({
-          title: 'Instance créée',
-          description: 'Votre instance WhatsApp est prête. Scannez le QR code.',
+          title: forceRefresh ? 'QR code rafraîchi' : 'Instance créée',
+          description: forceRefresh 
+            ? 'Scannez le nouveau QR code pour vous connecter.' 
+            : 'Votre instance WhatsApp est prête. Scannez le QR code.',
         });
       } else {
         throw new Error(data?.error || 'Failed to create instance');

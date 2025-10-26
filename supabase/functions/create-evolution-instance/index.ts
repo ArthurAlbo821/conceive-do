@@ -63,7 +63,11 @@ Deno.serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    console.log(`[create-evolution-instance] User ${user.id} requesting instance`);
+    // Parse request body for forceRefresh parameter
+    const body = await req.json().catch(() => ({}));
+    const forceRefresh = body?.forceRefresh === true;
+
+    console.log(`[create-evolution-instance] User ${user.id} requesting instance (forceRefresh: ${forceRefresh})`);
 
     // Check if user already has an instance
     const { data: existingInstance, error: checkError } = await supabase
@@ -75,6 +79,73 @@ Deno.serve(async (req) => {
     if (checkError && checkError.code !== 'PGRST116') {
       console.error('[create-evolution-instance] Error checking existing instance:', checkError);
       throw checkError;
+    }
+
+    // If forceRefresh is true and instance is connecting, regenerate QR code
+    if (forceRefresh && existingInstance && existingInstance.instance_status === 'connecting' && existingInstance.instance_token) {
+      console.log(`[create-evolution-instance] Force refreshing QR code for instance: ${existingInstance.instance_name}`);
+      
+      const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
+      
+      try {
+        const qrResponse = await fetchWithRetry(
+          `${baseUrl}/instance/connect/${existingInstance.instance_name}`,
+          {
+            method: 'GET',
+            headers: {
+              'apikey': existingInstance.instance_token,
+            },
+          },
+          { retries: 2, timeoutMs: 10000 }
+        );
+
+        if (!qrResponse.ok) {
+          throw new Error('Failed to fetch new QR code');
+        }
+
+        const qrData = await qrResponse.json();
+        const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
+
+        // Update QR code in database
+        const { data: updatedInstance, error: updateError } = await supabase
+          .from('evolution_instances')
+          .update({
+            qr_code: qrCodeBase64,
+            last_qr_update: new Date().toISOString(),
+          })
+          .eq('id', existingInstance.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('[create-evolution-instance] Failed to update QR code:', updateError);
+          throw updateError;
+        }
+
+        console.log(`[create-evolution-instance] QR code refreshed successfully`);
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            instance: updatedInstance,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        console.error('[create-evolution-instance] Error refreshing QR code:', error);
+        return new Response(
+          JSON.stringify({
+            success: false,
+            code: 'qr_refresh_failed',
+            error: 'Impossible de rafraîchir le QR code.',
+            details: error instanceof Error ? error.message : 'Unknown error',
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
     }
 
     if (existingInstance && existingInstance.instance_status !== 'error') {

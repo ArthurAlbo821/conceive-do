@@ -93,7 +93,8 @@ const Dashboard = () => {
             {instance.instance_status === 'connecting' && instance.qr_code && (
               <QRCodeDisplay
                 qrCode={instance.qr_code}
-                onRefresh={() => createInstance()}
+                onRefresh={() => createInstance(true)}
+                isRefreshing={loading}
               />
             )}
 

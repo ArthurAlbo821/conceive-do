@@ -4,9 +4,10 @@ import { Button } from '@/components/ui/button';
 interface QRCodeDisplayProps {
   qrCode: string;
   onRefresh: () => void;
+  isRefreshing?: boolean;
 }
 
-export const QRCodeDisplay = ({ qrCode, onRefresh }: QRCodeDisplayProps) => {
+export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false }: QRCodeDisplayProps) => {
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
@@ -36,8 +37,8 @@ export const QRCodeDisplay = ({ qrCode, onRefresh }: QRCodeDisplayProps) => {
           </ol>
         </div>
 
-        <Button onClick={onRefresh} variant="outline" className="w-full">
-          Rafraîchir le QR Code
+        <Button onClick={onRefresh} variant="outline" className="w-full" disabled={isRefreshing}>
+          {isRefreshing ? 'Rafraîchissement...' : 'Rafraîchir le QR Code'}
         </Button>
       </CardContent>
     </Card>
