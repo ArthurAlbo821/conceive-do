@@ -226,7 +226,11 @@ Deno.serve(async (req) => {
 
     // Get the API-generated token from the response
     const createData = await createResponse.json();
-    const apiGeneratedToken = createData.hash?.apikey || createData.instance?.token;
+    // The token can be in multiple places depending on the API version
+    const apiGeneratedToken = 
+      (typeof createData.hash === 'string' ? createData.hash : createData.hash?.apikey) || 
+      createData.instance?.token ||
+      instanceToken; // Fallback to our generated token
 
     if (!apiGeneratedToken) {
       console.error('[create-evolution-instance] No token in API response:', createData);
@@ -242,6 +246,8 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    console.log(`[create-evolution-instance] Received instance token from API (type: ${typeof createData.hash})`);
 
     console.log(`[create-evolution-instance] Received instance token from API`);
     console.log(`[create-evolution-instance] Instance created, configuring webhook`);
