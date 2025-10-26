@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
     let createResponse: Response;
     try {
       createResponse = await fetchWithRetry(
-        `${baseUrl}/manager/instance/create`,
+        `${baseUrl}/instance/create`,
         {
           method: 'POST',
           headers: {
@@ -158,7 +158,7 @@ Deno.serve(async (req) => {
     // Step 2: Configure webhook
     try {
       const webhookResponse = await fetchWithRetry(
-        `${baseUrl}/manager/webhook/set/${instanceName}`,
+        `${baseUrl}/webhook/set/${instanceName}`,
         {
           method: 'POST',
           headers: {
@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
     let qrResponse: Response;
     try {
       qrResponse = await fetchWithRetry(
-        `${baseUrl}/manager/instance/connect/${instanceName}`,
+        `${baseUrl}/instance/connect/${instanceName}`,
         {
           method: 'GET',
           headers: {

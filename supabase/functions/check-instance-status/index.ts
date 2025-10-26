@@ -101,7 +101,7 @@ Deno.serve(async (req) => {
     let statusResponse: Response;
     try {
       statusResponse = await fetchWithRetry(
-        `${baseUrl}/manager/instance/connectionState/${instance.instance_name}`,
+        `${baseUrl}/instance/connectionState/${instance.instance_name}`,
         {
           method: 'GET',
           headers: {
