@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
       throw new Error('EVOLUTION_API_KEY not configured');
     }
 
-    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'http://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
+    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
     const instanceName = `user_${user.id}_${Date.now()}`;
     const instanceToken = `token_${crypto.randomUUID()}`;
     const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook-handler`;
