@@ -153,6 +153,26 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Get the API-generated token from the response
+    const createData = await createResponse.json();
+    const apiGeneratedToken = createData.hash?.apikey || createData.instance?.token;
+
+    if (!apiGeneratedToken) {
+      console.error('[create-evolution-instance] No token in API response:', createData);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'missing_token',
+          error: 'L\'API n\'a pas retourné de token d\'instance.',
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    console.log(`[create-evolution-instance] Received instance token from API`);
     console.log(`[create-evolution-instance] Instance created, configuring webhook`);
 
     // Step 2: Configure webhook
@@ -162,7 +182,7 @@ Deno.serve(async (req) => {
         {
           method: 'POST',
           headers: {
-            'apikey': EVOLUTION_API_KEY,
+            'apikey': apiGeneratedToken,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
@@ -194,7 +214,7 @@ Deno.serve(async (req) => {
         {
           method: 'GET',
           headers: {
-            'apikey': EVOLUTION_API_KEY,
+            'apikey': apiGeneratedToken,
           },
         },
         { retries: 2, timeoutMs: 10000 }
@@ -244,6 +264,7 @@ Deno.serve(async (req) => {
         .from('evolution_instances')
         .update({
           instance_name: instanceName,
+          instance_token: apiGeneratedToken,
           instance_status: 'connecting',
           qr_code: qrCodeBase64,
           webhook_url: webhookUrl,
@@ -274,6 +295,7 @@ Deno.serve(async (req) => {
         .insert({
           user_id: user.id,
           instance_name: instanceName,
+          instance_token: apiGeneratedToken,
           instance_status: 'connecting',
           qr_code: qrCodeBase64,
           webhook_url: webhookUrl,

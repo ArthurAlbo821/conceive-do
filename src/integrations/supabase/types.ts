@@ -20,6 +20,7 @@ export type Database = {
           id: string
           instance_name: string
           instance_status: string
+          instance_token: string | null
           last_qr_update: string | null
           phone_number: string | null
           qr_code: string | null
@@ -32,6 +33,7 @@ export type Database = {
           id?: string
           instance_name: string
           instance_status?: string
+          instance_token?: string | null
           last_qr_update?: string | null
           phone_number?: string | null
           qr_code?: string | null
@@ -44,6 +46,7 @@ export type Database = {
           id?: string
           instance_name?: string
           instance_status?: string
+          instance_token?: string | null
           last_qr_update?: string | null
           phone_number?: string | null
           qr_code?: string | null

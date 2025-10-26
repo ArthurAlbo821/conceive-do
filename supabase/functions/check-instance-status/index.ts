@@ -88,9 +88,18 @@ Deno.serve(async (req) => {
       );
     }
 
-    const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY');
-    if (!EVOLUTION_API_KEY) {
-      throw new Error('EVOLUTION_API_KEY not configured');
+    if (!instance.instance_token) {
+      console.error('[check-instance-status] Instance has no token:', instance.instance_name);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: 'Instance token not configured',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
@@ -105,7 +114,7 @@ Deno.serve(async (req) => {
         {
           method: 'GET',
           headers: {
-            'apikey': EVOLUTION_API_KEY,
+            'apikey': instance.instance_token,
           },
         },
         { retries: 2, timeoutMs: 10000 }
