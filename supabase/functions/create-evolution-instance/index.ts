@@ -5,6 +5,42 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function for retrying fetch with timeout
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  config: { retries?: number; timeoutMs?: number } = {}
+): Promise<Response> {
+  const { retries = 2, timeoutMs = 10000 } = config;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown fetch error');
+      console.error(`[fetchWithRetry] Attempt ${attempt + 1}/${retries + 1} failed:`, lastError.message);
+
+      if (attempt < retries) {
+        const backoffMs = 800 * Math.pow(2, attempt);
+        console.log(`[fetchWithRetry] Retrying in ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+
+  throw lastError || new Error('All retry attempts failed');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -57,6 +93,7 @@ Deno.serve(async (req) => {
       throw new Error('EVOLUTION_API_KEY not configured');
     }
 
+    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'http://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
     const instanceName = `user_${user.id}_${Date.now()}`;
     const instanceToken = `token_${crypto.randomUUID()}`;
     const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook-handler`;
@@ -64,71 +101,135 @@ Deno.serve(async (req) => {
     console.log(`[create-evolution-instance] Creating instance: ${instanceName}`);
 
     // Step 1: Create instance
-    const createResponse = await fetch(
-      'http://cst-evolution-api-kaezwnkk.usecloudstation.com/manager/instance/create',
-      {
-        method: 'POST',
-        headers: {
-          'apikey': EVOLUTION_API_KEY,
-          'Content-Type': 'application/json',
+    let createResponse: Response;
+    try {
+      createResponse = await fetchWithRetry(
+        `${baseUrl}/manager/instance/create`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': EVOLUTION_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            instanceName: instanceName,
+            token: instanceToken,
+            qrcode: true,
+            integration: 'WHATSAPP-BAILEYS',
+          }),
         },
-        body: JSON.stringify({
-          instanceName: instanceName,
-          token: instanceToken,
-          qrcode: true,
-          integration: 'WHATSAPP-BAILEYS',
+        { retries: 2, timeoutMs: 10000 }
+      );
+    } catch (error) {
+      console.error('[create-evolution-instance] Evolution API unreachable:', error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'evolution_api_unreachable',
+          error: 'L\'API Evolution est temporairement indisponible. Veuillez réessayer dans quelques minutes.',
+          details: error instanceof Error ? error.message : 'Network timeout',
         }),
-      }
-    );
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
 
     if (!createResponse.ok) {
       const errorText = await createResponse.text();
       console.error('[create-evolution-instance] Evolution API create error:', errorText);
-      throw new Error(`Evolution API error: ${errorText}`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'evolution_api_error',
+          error: 'Erreur lors de la création de l\'instance WhatsApp.',
+          details: errorText,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     console.log(`[create-evolution-instance] Instance created, configuring webhook`);
 
     // Step 2: Configure webhook
-    const webhookResponse = await fetch(
-      `http://cst-evolution-api-kaezwnkk.usecloudstation.com/manager/webhook/set/${instanceName}`,
-      {
-        method: 'POST',
-        headers: {
-          'apikey': EVOLUTION_API_KEY,
-          'Content-Type': 'application/json',
+    try {
+      const webhookResponse = await fetchWithRetry(
+        `${baseUrl}/manager/webhook/set/${instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': EVOLUTION_API_KEY,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            url: webhookUrl,
+            webhook_by_events: false,
+            webhook_base64: false,
+            events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
+          }),
         },
-        body: JSON.stringify({
-          url: webhookUrl,
-          webhook_by_events: false,
-          webhook_base64: false,
-          events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
-        }),
-      }
-    );
+        { retries: 2, timeoutMs: 10000 }
+      );
 
-    if (!webhookResponse.ok) {
-      const errorText = await webhookResponse.text();
-      console.error('[create-evolution-instance] Webhook configuration error:', errorText);
+      if (!webhookResponse.ok) {
+        const errorText = await webhookResponse.text();
+        console.error('[create-evolution-instance] Webhook configuration error:', errorText);
+      }
+    } catch (error) {
+      console.error('[create-evolution-instance] Webhook configuration failed:', error);
+      // Non-blocking: continue without webhook
     }
 
     console.log(`[create-evolution-instance] Webhook configured, fetching QR code`);
 
     // Step 3: Get QR code
-    const qrResponse = await fetch(
-      `http://cst-evolution-api-kaezwnkk.usecloudstation.com/manager/instance/connect/${instanceName}`,
-      {
-        method: 'GET',
-        headers: {
-          'apikey': EVOLUTION_API_KEY,
+    let qrResponse: Response;
+    try {
+      qrResponse = await fetchWithRetry(
+        `${baseUrl}/manager/instance/connect/${instanceName}`,
+        {
+          method: 'GET',
+          headers: {
+            'apikey': EVOLUTION_API_KEY,
+          },
         },
-      }
-    );
+        { retries: 2, timeoutMs: 10000 }
+      );
+    } catch (error) {
+      console.error('[create-evolution-instance] QR code fetch failed:', error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'evolution_api_unreachable',
+          error: 'L\'API Evolution est temporairement indisponible. Veuillez réessayer dans quelques minutes.',
+          details: error instanceof Error ? error.message : 'Network timeout',
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
 
     if (!qrResponse.ok) {
       const errorText = await qrResponse.text();
       console.error('[create-evolution-instance] QR code fetch error:', errorText);
-      throw new Error(`Failed to fetch QR code: ${errorText}`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'evolution_api_error',
+          error: 'Impossible de récupérer le QR code.',
+          details: errorText,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const qrData = await qrResponse.json();

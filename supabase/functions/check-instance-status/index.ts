@@ -5,6 +5,42 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Helper function for retrying fetch with timeout
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  config: { retries?: number; timeoutMs?: number } = {}
+): Promise<Response> {
+  const { retries = 2, timeoutMs = 10000 } = config;
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Unknown fetch error');
+      console.error(`[fetchWithRetry] Attempt ${attempt + 1}/${retries + 1} failed:`, lastError.message);
+
+      if (attempt < retries) {
+        const backoffMs = 800 * Math.pow(2, attempt);
+        console.log(`[fetchWithRetry] Retrying in ${backoffMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+
+  throw lastError || new Error('All retry attempts failed');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -57,23 +93,54 @@ Deno.serve(async (req) => {
       throw new Error('EVOLUTION_API_KEY not configured');
     }
 
+    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'http://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
+
     console.log(`[check-instance-status] Checking status for: ${instance.instance_name}`);
 
     // Check instance status from Evolution API
-    const statusResponse = await fetch(
-      `http://cst-evolution-api-kaezwnkk.usecloudstation.com/manager/instance/connectionState/${instance.instance_name}`,
-      {
-        method: 'GET',
-        headers: {
-          'apikey': EVOLUTION_API_KEY,
+    let statusResponse: Response;
+    try {
+      statusResponse = await fetchWithRetry(
+        `${baseUrl}/manager/instance/connectionState/${instance.instance_name}`,
+        {
+          method: 'GET',
+          headers: {
+            'apikey': EVOLUTION_API_KEY,
+          },
         },
-      }
-    );
+        { retries: 2, timeoutMs: 10000 }
+      );
+    } catch (error) {
+      console.error('[check-instance-status] Evolution API unreachable:', error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'evolution_api_unreachable',
+          error: 'L\'API Evolution est temporairement indisponible.',
+          details: error instanceof Error ? error.message : 'Network timeout',
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
       console.error('[check-instance-status] Evolution API error:', errorText);
-      throw new Error(`Evolution API error: ${errorText}`);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          code: 'evolution_api_error',
+          error: 'Erreur lors de la vérification du statut.',
+          details: errorText,
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
     const statusData = await statusResponse.json();
