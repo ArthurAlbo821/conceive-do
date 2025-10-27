@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -21,6 +21,7 @@ export const useEvolutionInstance = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const lastAutoRefreshFromRef = useRef<string | null>(null);
 
   // Fetch instance from database
   const fetchInstance = async () => {
@@ -169,18 +170,16 @@ export const useEvolutionInstance = () => {
       const lastUpdate = new Date(instance.last_qr_update!).getTime();
       const now = Date.now();
       const elapsed = Math.floor((now - lastUpdate) / 1000);
-      
-      // Refresh at 110 seconds (10 seconds before expiration)
-      if (elapsed >= 110) {
+
+      // Refresh at 110 seconds (10 seconds before expiration) - guarded to run once per QR
+      if (elapsed >= 110 && lastAutoRefreshFromRef.current !== instance.last_qr_update) {
         console.log('[useEvolutionInstance] Auto-refreshing QR code at 1:50');
+        lastAutoRefreshFromRef.current = instance.last_qr_update!;
         createInstance(true); // forceRefresh = true
       }
     };
 
-    // Check immediately
-    checkAndRefreshQR();
-    
-    // Then check every 5 seconds
+    // Check every 5 seconds
     const interval = setInterval(checkAndRefreshQR, 5000);
 
     return () => clearInterval(interval);
