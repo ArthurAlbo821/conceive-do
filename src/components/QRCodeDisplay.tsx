@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Clock } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface QRCodeDisplayProps {
   qrCode: string;
@@ -14,6 +14,12 @@ interface QRCodeDisplayProps {
 export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrUpdate }: QRCodeDisplayProps) => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const QR_EXPIRATION_SECONDS = 120; // 2 minutes
+  const autoRefreshFiredRef = useRef(false);
+
+  // Reset auto-refresh flag when QR updates
+  useEffect(() => {
+    autoRefreshFiredRef.current = false;
+  }, [lastQrUpdate]);
 
   useEffect(() => {
     if (!lastQrUpdate) return;
@@ -38,6 +44,15 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
 
+  // Auto-refresh when timer reaches 0
+  useEffect(() => {
+    if (!lastQrUpdate) return;
+    if (remainingSeconds === 0 && !isRefreshing && !autoRefreshFiredRef.current) {
+      autoRefreshFiredRef.current = true;
+      onRefresh();
+    }
+  }, [remainingSeconds, lastQrUpdate, isRefreshing, onRefresh]);
+
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
@@ -50,6 +65,12 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
       </CardHeader>
       <CardContent className="flex flex-col items-center space-y-6">
         <div className="relative">
+          {lastQrUpdate && (
+            <Badge variant="secondary" className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 gap-1">
+              <Clock className="w-3 h-3" />
+              {minutes}:{seconds.toString().padStart(2, '0')}
+            </Badge>
+          )}
           <div className="bg-white p-4 rounded-lg shadow-inner">
             <img
               src={qrCode}
@@ -57,13 +78,6 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
               className="w-64 h-64"
             />
           </div>
-
-          {lastQrUpdate && (
-            <Badge variant="secondary" className="absolute top-2 right-2 gap-1">
-              <Clock className="w-3 h-3" />
-              {minutes}:{seconds.toString().padStart(2, '0')}
-            </Badge>
-          )}
         </div>
 
         <div className="text-sm text-muted-foreground space-y-2 text-center">
