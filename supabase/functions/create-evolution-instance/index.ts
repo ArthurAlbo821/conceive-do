@@ -134,8 +134,8 @@ Deno.serve(async (req) => {
       console.log('[create-evolution-instance] Old instance deleted from DB, will create new permanent instance');
     }
 
-    // If forceRefresh is true and instance is connecting, regenerate QR code
-    if (forceRefresh && existingInstance && existingInstance.instance_status === 'connecting' && existingInstance.instance_token) {
+    // If forceRefresh is true, handle QR code refresh
+    if (forceRefresh && existingInstance) {
       console.log(`[create-evolution-instance] Force refreshing QR code for instance: ${existingInstance.instance_name}`);
       
       // First, check if instance still exists in Evolution API
@@ -246,9 +246,10 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Use existing instance name or create a permanent one (without timestamp)
-    const instanceName = currentInstance?.instance_name || `user_${user.id}`;
-    const instanceToken = currentInstance?.instance_token || `token_${crypto.randomUUID()}`;
+    // Always use permanent instance name format: user_${userId}
+    const instanceName = `user_${user.id}`;
+    // Reuse existing token or generate a new permanent one (UUID only, no prefix)
+    const instanceToken = currentInstance?.instance_token || crypto.randomUUID();
     const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook-handler`;
 
     // If instance exists and is disconnected, try to reconnect it
@@ -594,8 +595,12 @@ Deno.serve(async (req) => {
     console.log(`[create-evolution-instance] QR code retrieved, saving to database`);
 
     // Step 4: Save to database
-    if (existingInstance) {
+    // CRITICAL: Use currentInstance (reloaded after potential deletions) not existingInstance
+    const dbInstance = currentInstance || null;
+    
+    if (dbInstance) {
       // Update existing instance
+      console.log(`[create-evolution-instance] DB action: UPDATE id=${dbInstance.id}`);
       const { data: updatedInstance, error: updateError } = await supabase
         .from('evolution_instances')
         .update({
@@ -606,7 +611,7 @@ Deno.serve(async (req) => {
           webhook_url: webhookUrl,
           last_qr_update: new Date().toISOString(),
         })
-        .eq('id', existingInstance.id)
+        .eq('id', dbInstance.id)
         .select()
         .single();
 
@@ -626,6 +631,7 @@ Deno.serve(async (req) => {
       );
     } else {
       // Insert new instance
+      console.log(`[create-evolution-instance] DB action: INSERT new instance`);
       const { data: newInstance, error: insertError } = await supabase
         .from('evolution_instances')
         .insert({

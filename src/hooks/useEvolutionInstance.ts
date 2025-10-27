@@ -6,6 +6,7 @@ export interface EvolutionInstance {
   id: string;
   user_id: string;
   instance_name: string;
+  instance_token: string;
   instance_status: 'creating' | 'disconnected' | 'connecting' | 'connected' | 'error';
   qr_code: string | null;
   phone_number: string | null;

@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useEvolutionInstance } from '@/hooks/useEvolutionInstance';
 import { QRCodeDisplay } from '@/components/QRCodeDisplay';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
-import { Loader2, Trash2 } from 'lucide-react';
+import { Loader2, Trash2, RotateCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const Dashboard = () => {
@@ -14,6 +14,7 @@ const Dashboard = () => {
   const { instance, loading, error, createInstance, checkStatus } = useEvolutionInstance();
   const { toast } = useToast();
   const [isCleaningUp, setIsCleaningUp] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -64,6 +65,44 @@ const Dashboard = () => {
     }
   };
 
+  const handleResetInstance = async () => {
+    if (!window.confirm('Êtes-vous sûr de vouloir réinitialiser votre instance ? Un nouveau QR code sera généré.')) {
+      return;
+    }
+    
+    setIsResetting(true);
+    try {
+      // Delete the instance from DB
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { error: deleteError } = await supabase
+        .from('evolution_instances')
+        .delete()
+        .eq('user_id', user.id);
+      
+      if (deleteError) throw deleteError;
+      
+      toast({
+        title: 'Instance réinitialisée',
+        description: 'Création d\'une nouvelle instance en cours...',
+      });
+      
+      // Recreate instance
+      await createInstance();
+      
+    } catch (error) {
+      console.error('Error resetting instance:', error);
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de réinitialiser l\'instance',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   if (loading && !instance) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -84,6 +123,16 @@ const Dashboard = () => {
           <div className="flex justify-between items-center mb-2">
             <h1 className="text-2xl font-bold">Dashboard WhatsApp</h1>
             <div className="flex gap-2">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleResetInstance}
+                disabled={isResetting || loading}
+                title="Réinitialiser l'instance (supprime et recrée)"
+              >
+                <RotateCcw className="h-4 w-4 mr-2" />
+                {isResetting ? 'Réinit...' : 'Réinitialiser'}
+              </Button>
               <Button 
                 variant="ghost" 
                 size="sm" 

@@ -137,7 +137,41 @@ Deno.serve(async (req) => {
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
-      console.error('[check-instance-status] Evolution API error:', errorText);
+      console.error('[check-instance-status] Evolution API error:', {
+        status: statusResponse.status,
+        error: statusResponse.statusText,
+        response: errorText
+      });
+      
+      // If 404, instance was manually deleted from Evolution API
+      if (statusResponse.status === 404) {
+        console.log('[check-instance-status] Instance not found in Evolution API (404), updating DB status');
+        
+        const { error: updateError } = await supabase
+          .from('evolution_instances')
+          .update({
+            instance_status: 'disconnected',
+            qr_code: null,
+            last_qr_update: null,
+          })
+          .eq('id', instance.id);
+        
+        if (updateError) {
+          console.error('[check-instance-status] Failed to update DB after 404:', updateError);
+        } else {
+          console.log('[check-instance-status] DB updated: status=disconnected, qr_code=null');
+        }
+        
+        return new Response(
+          JSON.stringify({
+            success: true,
+            status: 'disconnected',
+            message: 'Instance was deleted manually from Evolution API',
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
       return new Response(
         JSON.stringify({
           success: false,
