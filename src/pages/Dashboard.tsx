@@ -95,6 +95,7 @@ const Dashboard = () => {
                 qrCode={instance.qr_code}
                 onRefresh={() => createInstance(true)}
                 isRefreshing={loading}
+                lastQrUpdate={instance.last_qr_update}
               />
             )}
 
