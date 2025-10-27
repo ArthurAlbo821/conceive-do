@@ -244,6 +244,43 @@ Deno.serve(async (req) => {
       }
     } else if (state === 'connecting') {
       newStatus = 'connecting';
+
+      // Auto-refresh QR code if missing or older than 110 seconds
+      try {
+        const lastUpdateTs = instance.last_qr_update ? new Date(instance.last_qr_update).getTime() : 0;
+        const elapsed = Math.floor((Date.now() - lastUpdateTs) / 1000);
+
+        if (!instance.qr_code || elapsed >= 110) {
+          console.log(`[check-instance-status] QR code ${!instance.qr_code ? 'missing' : `expired (${elapsed}s old)`}, auto-refreshing...`);
+          
+          const qrResponse = await fetchWithRetry(
+            `${baseUrl}/instance/connect/${instance.instance_name}`,
+            {
+              method: 'GET',
+              headers: {
+                'apikey': instance.instance_token,
+              },
+            },
+            { retries: 1, timeoutMs: 8000 }
+          );
+
+          if (qrResponse.ok) {
+            const qrData = await qrResponse.json();
+            const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
+            if (qrCodeBase64) {
+              console.log('[check-instance-status] QR code auto-refreshed successfully while connecting');
+              updateData.qr_code = qrCodeBase64;
+              updateData.last_qr_update = new Date().toISOString();
+            } else {
+              console.log('[check-instance-status] No QR code in response during auto-refresh');
+            }
+          } else {
+            console.log(`[check-instance-status] Connect API failed (${qrResponse.status}) during auto-refresh`);
+          }
+        }
+      } catch (err) {
+        console.error('[check-instance-status] Error auto-refreshing QR during connecting:', err);
+      }
     }
 
     // Update status in database if changed
