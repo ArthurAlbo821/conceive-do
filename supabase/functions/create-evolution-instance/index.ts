@@ -148,10 +148,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // If instance exists and is valid (not error/disconnected and has token), return it
+    // If instance exists and is valid (connecting or connected with token), return it
     if (existingInstance && 
-        existingInstance.instance_status !== 'error' && 
-        existingInstance.instance_status !== 'disconnected' &&
+        (existingInstance.instance_status === 'connecting' || existingInstance.instance_status === 'connected') &&
         existingInstance.instance_token) {
       console.log(`[create-evolution-instance] Returning existing instance: ${existingInstance.instance_name}`);
       return new Response(
@@ -163,52 +162,99 @@ Deno.serve(async (req) => {
       );
     }
 
-    // If instance exists but is disconnected or has no token, delete it first
-    if (existingInstance && (existingInstance.instance_status === 'disconnected' || !existingInstance.instance_token)) {
-      console.log(`[create-evolution-instance] Deleting invalid instance (status: ${existingInstance.instance_status}, has_token: ${!!existingInstance.instance_token})`);
-      
-      // Delete from database
-      const { error: deleteError } = await supabase
-        .from('evolution_instances')
-        .delete()
-        .eq('id', existingInstance.id);
-      
-      if (deleteError) {
-        console.error('[create-evolution-instance] Error deleting instance:', deleteError);
-      }
-      
-      // Try to delete from Evolution API if we have instance name
-      if (existingInstance.instance_name && existingInstance.instance_token) {
-        const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
-        try {
-          await fetchWithRetry(
-            `${baseUrl}/instance/delete/${existingInstance.instance_name}`,
-            {
-              method: 'DELETE',
-              headers: {
-                'apikey': existingInstance.instance_token,
-              },
-            },
-            { retries: 1, timeoutMs: 5000 }
-          );
-          console.log(`[create-evolution-instance] Deleted instance from Evolution API`);
-        } catch (error) {
-          console.error('[create-evolution-instance] Could not delete from Evolution API (continuing anyway):', error);
-        }
-      }
-    }
-
     const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY');
     if (!EVOLUTION_API_KEY) {
       throw new Error('EVOLUTION_API_KEY not configured');
     }
 
     const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
-    const instanceName = `user_${user.id}_${Date.now()}`;
-    const instanceToken = `token_${crypto.randomUUID()}`;
+    
+    // Use existing instance name or create a permanent one (without timestamp)
+    const instanceName = existingInstance?.instance_name || `user_${user.id}`;
+    const instanceToken = existingInstance?.instance_token || `token_${crypto.randomUUID()}`;
     const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook-handler`;
 
-    console.log(`[create-evolution-instance] Creating instance: ${instanceName}`);
+    // If instance exists and is disconnected, try to reconnect it
+    if (existingInstance && existingInstance.instance_status === 'disconnected' && existingInstance.instance_token) {
+      console.log(`[create-evolution-instance] Reconnecting disconnected instance: ${instanceName}`);
+      
+      // Check if instance still exists in Evolution API
+      try {
+        const checkResponse = await fetchWithRetry(
+          `${baseUrl}/instance/fetchInstances?instanceName=${instanceName}`,
+          {
+            method: 'GET',
+            headers: {
+              'apikey': EVOLUTION_API_KEY,
+            },
+          },
+          { retries: 1, timeoutMs: 5000 }
+        );
+
+        if (checkResponse.ok) {
+          const instances = await checkResponse.json();
+          const instanceExists = Array.isArray(instances) && instances.some(
+            (inst: any) => inst.instance?.instanceName === instanceName
+          );
+
+          if (instanceExists) {
+            console.log(`[create-evolution-instance] Instance exists in Evolution API, regenerating QR code`);
+            
+            // Regenerate QR code for existing instance
+            const qrResponse = await fetchWithRetry(
+              `${baseUrl}/instance/connect/${instanceName}`,
+              {
+                method: 'GET',
+                headers: {
+                  'apikey': existingInstance.instance_token,
+                },
+              },
+              { retries: 2, timeoutMs: 10000 }
+            );
+
+            if (qrResponse.ok) {
+              const qrData = await qrResponse.json();
+              const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
+
+              // Update database with new QR code and status
+              const { data: updatedInstance, error: updateError } = await supabase
+                .from('evolution_instances')
+                .update({
+                  instance_status: 'connecting',
+                  qr_code: qrCodeBase64,
+                  last_qr_update: new Date().toISOString(),
+                })
+                .eq('id', existingInstance.id)
+                .select()
+                .single();
+
+              if (updateError) {
+                console.error('[create-evolution-instance] Failed to update reconnected instance:', updateError);
+                throw updateError;
+              }
+
+              console.log(`[create-evolution-instance] Instance reconnected successfully with new QR code`);
+
+              return new Response(
+                JSON.stringify({
+                  success: true,
+                  instance: updatedInstance,
+                }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+              );
+            }
+          } else {
+            console.log(`[create-evolution-instance] Instance doesn't exist in Evolution API, will recreate with same name`);
+          }
+        }
+      } catch (error) {
+        console.error('[create-evolution-instance] Error checking instance existence:', error);
+        console.log('[create-evolution-instance] Will attempt to recreate instance');
+      }
+    }
+
+    // At this point, we need to create a new instance (or recreate a disconnected one)
+    console.log(`[create-evolution-instance] Creating/recreating instance: ${instanceName}`);
 
     // Step 1: Create instance
     let createResponse: Response;

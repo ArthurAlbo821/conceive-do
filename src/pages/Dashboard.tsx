@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -6,11 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useEvolutionInstance } from '@/hooks/useEvolutionInstance';
 import { QRCodeDisplay } from '@/components/QRCodeDisplay';
 import { ConnectionStatus } from '@/components/ConnectionStatus';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { instance, loading, error, createInstance, checkStatus } = useEvolutionInstance();
+  const { toast } = useToast();
+  const [isCleaningUp, setIsCleaningUp] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -34,6 +37,33 @@ const Dashboard = () => {
     navigate('/auth');
   };
 
+  const handleCleanupOldInstances = async () => {
+    setIsCleaningUp(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('cleanup-old-instances');
+      
+      if (error) throw error;
+      
+      if (data?.success) {
+        toast({
+          title: "Nettoyage réussi",
+          description: `${data.deleted} ancienne(s) instance(s) supprimée(s).`,
+        });
+      } else {
+        throw new Error(data?.error || 'Erreur inconnue');
+      }
+    } catch (error) {
+      console.error('Cleanup error:', error);
+      toast({
+        title: "Erreur de nettoyage",
+        description: error instanceof Error ? error.message : "Impossible de nettoyer les anciennes instances.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCleaningUp(false);
+    }
+  };
+
   if (loading && !instance) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -53,9 +83,21 @@ const Dashboard = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex justify-between items-center mb-2">
             <h1 className="text-2xl font-bold">Dashboard WhatsApp</h1>
-            <Button variant="outline" onClick={handleLogout}>
-              Déconnexion
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={handleCleanupOldInstances}
+                disabled={isCleaningUp}
+                title="Nettoyer les anciennes instances"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {isCleaningUp ? 'Nettoyage...' : 'Nettoyer'}
+              </Button>
+              <Button variant="outline" onClick={handleLogout}>
+                Déconnexion
+              </Button>
+            </div>
           </div>
           
           {/* Real-time monitoring indicator */}
