@@ -29,7 +29,7 @@ const Dashboard = () => {
   useEffect(() => {
     // If no instance exists, create one automatically
     if (!loading && !instance && !error) {
-      createInstance();
+      createInstance({ forceRefresh: false });
     }
   }, [loading, instance, error]);
 
@@ -89,7 +89,7 @@ const Dashboard = () => {
       });
       
       // Recreate instance
-      await createInstance();
+      await createInstance({ forceRefresh: false });
       
     } catch (error) {
       console.error('Error resetting instance:', error);
@@ -191,7 +191,7 @@ const Dashboard = () => {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-4">{error}</p>
-              <Button onClick={() => createInstance()} variant="outline">
+              <Button onClick={() => createInstance({ forceRefresh: false })} variant="outline">
                 Réessayer
               </Button>
             </CardContent>
@@ -230,10 +230,10 @@ const Dashboard = () => {
               </CardContent>
             </Card>
 
-            {instance.instance_status === 'connecting' && instance.qr_code && (
+            {(instance.instance_status === 'connecting' || instance.instance_status === 'disconnected') && instance.qr_code && (
               <QRCodeDisplay
                 qrCode={instance.qr_code}
-                onRefresh={() => createInstance(true)}
+                onRefresh={() => createInstance({ forceRefresh: true })}
                 isRefreshing={loading}
                 lastQrUpdate={instance.last_qr_update}
               />
@@ -262,23 +262,7 @@ const Dashboard = () => {
               </Card>
             )}
 
-            {instance.instance_status === 'disconnected' && (
-              <Card className="border-orange-500">
-                <CardHeader>
-                  <CardTitle className="text-orange-600">WhatsApp Déconnecté</CardTitle>
-                  <CardDescription>
-                    Votre WhatsApp s'est déconnecté. Reconnectez-vous en scannant un nouveau QR code.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button onClick={() => createInstance()}>
-                    Reconnecter
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {instance.instance_status === 'connecting' && !instance.qr_code && (
+            {(instance.instance_status === 'connecting' || instance.instance_status === 'disconnected') && !instance.qr_code && (
               <Card>
                 <CardContent className="pt-6">
                   <div className="flex items-center space-x-2">

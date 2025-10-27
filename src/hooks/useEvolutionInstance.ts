@@ -22,6 +22,8 @@ export const useEvolutionInstance = () => {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
   const lastAutoRefreshFromRef = useRef<string | null>(null);
+  const lastRecoveryAttemptRef = useRef<number>(0);
+  const lastErrorToastRef = useRef<number>(0);
 
   // Fetch instance from database
   const fetchInstance = async () => {
@@ -51,38 +53,62 @@ export const useEvolutionInstance = () => {
   };
 
   // Create new instance or refresh QR code
-  const createInstance = async (forceRefresh?: boolean) => {
+  const createInstance = async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
+    const { forceRefresh = false, silent = false } = options;
+    
     setLoading(true);
     setError(null);
 
     try {
       const { data, error: functionError } = await supabase.functions.invoke(
         'create-evolution-instance',
-        { body: { forceRefresh: forceRefresh || false } }
+        { body: { forceRefresh } }
       );
 
       if (functionError) throw functionError;
 
       if (data?.success && data?.instance) {
         setInstance(data.instance);
-        toast({
-          title: forceRefresh ? 'QR code rafraîchi' : 'Instance créée',
-          description: forceRefresh 
-            ? 'Scannez le nouveau QR code pour vous connecter.' 
-            : 'Votre instance WhatsApp est prête. Scannez le QR code.',
-        });
+        if (!silent) {
+          toast({
+            title: forceRefresh ? 'QR code rafraîchi' : 'Instance créée',
+            description: forceRefresh 
+              ? 'Scannez le nouveau QR code pour vous connecter.' 
+              : 'Votre instance WhatsApp est prête. Scannez le QR code.',
+          });
+        }
       } else {
+        // Special handling for "already in use" errors
+        if (data?.details?.includes?.('already in use') || data?.code === 'instance_name_in_use') {
+          console.log('[useEvolutionInstance] Instance already exists, syncing status...');
+          await checkStatus();
+          if (!silent) {
+            toast({
+              title: "Instance existante",
+              description: "Synchronisation en cours...",
+            });
+          }
+          return;
+        }
         throw new Error(data?.error || 'Failed to create instance');
       }
     } catch (err) {
       console.error('Error creating instance:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to create instance';
       setError(errorMessage);
-      toast({
-        title: 'Erreur',
-        description: errorMessage,
-        variant: 'destructive',
-      });
+      
+      // Deduplicate error toasts (30s cooldown for non-silent calls)
+      if (!silent) {
+        const now = Date.now();
+        if (now - lastErrorToastRef.current > 30000) {
+          lastErrorToastRef.current = now;
+          toast({
+            title: 'Erreur',
+            description: errorMessage,
+            variant: 'destructive',
+          });
+        }
+      }
     } finally {
       setLoading(false);
     }
@@ -173,9 +199,9 @@ export const useEvolutionInstance = () => {
 
       // Refresh at 110 seconds (10 seconds before expiration) - guarded to run once per QR
       if (elapsed >= 110 && lastAutoRefreshFromRef.current !== instance.last_qr_update) {
-        console.log('[useEvolutionInstance] Auto-refreshing QR code at 1:50');
+        console.log('[useEvolutionInstance] Auto-refreshing QR code at 1:50 (silent)');
         lastAutoRefreshFromRef.current = instance.last_qr_update!;
-        createInstance(true); // forceRefresh = true
+        createInstance({ forceRefresh: true, silent: true });
       }
     };
 
@@ -185,17 +211,23 @@ export const useEvolutionInstance = () => {
     return () => clearInterval(interval);
   }, [instance?.last_qr_update, instance?.instance_status, instance?.qr_code]);
 
-  // Auto-recovery: if disconnected but never connected, regenerate QR
+  // Auto-recovery: if connecting but no QR code, try to get one (with cooldown)
   useEffect(() => {
     if (
-      instance?.instance_status === 'disconnected' && 
-      !instance.phone_number && // Never connected
+      instance?.instance_status === 'connecting' && 
+      !instance.qr_code &&
       !loading
     ) {
-      console.log('[useEvolutionInstance] Instance disconnected without ever connecting, attempting recovery');
-      createInstance(true);
+      const now = Date.now();
+      const cooldown = 60000; // 60 seconds between recovery attempts
+      
+      if (now - lastRecoveryAttemptRef.current > cooldown) {
+        console.log('[useEvolutionInstance] Auto-recovering QR code for connecting instance (silent)');
+        lastRecoveryAttemptRef.current = now;
+        createInstance({ forceRefresh: true, silent: true });
+      }
     }
-  }, [instance?.instance_status, instance?.phone_number, loading]);
+  }, [instance?.instance_status, instance?.qr_code, loading]);
 
   return {
     instance,

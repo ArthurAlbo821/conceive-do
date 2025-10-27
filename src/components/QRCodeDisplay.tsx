@@ -18,6 +18,9 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
   useEffect(() => {
     if (!lastQrUpdate) return;
 
+    // Reset timer when QR is refreshed
+    setElapsedSeconds(0);
+
     const updateElapsed = () => {
       const lastUpdate = new Date(lastQrUpdate).getTime();
       const now = Date.now();
