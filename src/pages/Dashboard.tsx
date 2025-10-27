@@ -50,11 +50,45 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Dashboard WhatsApp</h1>
-          <Button variant="outline" onClick={handleLogout}>
-            Déconnexion
-          </Button>
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex justify-between items-center mb-2">
+            <h1 className="text-2xl font-bold">Dashboard WhatsApp</h1>
+            <Button variant="outline" onClick={handleLogout}>
+              Déconnexion
+            </Button>
+          </div>
+          
+          {/* Real-time monitoring indicator */}
+          {instance && (
+            <div className="flex items-center gap-2 mt-3">
+              {instance.instance_status === 'connected' && (
+                <>
+                  <div className="flex items-center gap-1.5 px-3 py-1 bg-green-500/10 border border-green-500/20 rounded-full">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    <span className="text-sm text-green-600 dark:text-green-400 font-medium">
+                      Détection automatique active
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Vérification toutes les 15s
+                  </span>
+                </>
+              )}
+              {instance.instance_status === 'connecting' && (
+                <>
+                  <div className="flex items-center gap-1.5 px-3 py-1 bg-yellow-500/10 border border-yellow-500/20 rounded-full">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+                    <span className="text-sm text-yellow-600 dark:text-yellow-400 font-medium">
+                      Vérification périodique
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    Vérification toutes les 5s
+                  </span>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

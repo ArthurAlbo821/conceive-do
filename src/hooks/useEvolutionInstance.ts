@@ -147,6 +147,17 @@ export const useEvolutionInstance = () => {
     }
   }, [instance?.instance_status]);
 
+  // Continuous polling when status is 'connected' to detect disconnections
+  useEffect(() => {
+    if (instance?.instance_status === 'connected') {
+      const interval = setInterval(() => {
+        checkStatus();
+      }, 15000); // Poll every 15 seconds for connected instances
+
+      return () => clearInterval(interval);
+    }
+  }, [instance?.instance_status]);
+
   return {
     instance,
     loading,
