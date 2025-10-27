@@ -204,11 +204,56 @@ Deno.serve(async (req) => {
         console.log(`[check-instance-status] Extracted phone number: ${phoneNumber}`);
       }
     } else if (state === 'close') {
-      newStatus = 'disconnected';
-      // Clear phone number and QR code when disconnected
-      updateData.phone_number = null;
-      updateData.qr_code = null;
-      console.log(`[check-instance-status] Clearing phone_number and qr_code due to disconnection`);
+      // If we were connecting and now we're close, try to regenerate QR before marking as disconnected
+      if (instance.instance_status === 'connecting') {
+        console.log(`[check-instance-status] Instance was connecting but now close, attempting QR regeneration`);
+        
+        try {
+          const qrResponse = await fetchWithRetry(
+            `${baseUrl}/instance/connect/${instance.instance_name}`,
+            {
+              method: 'GET',
+              headers: {
+                'apikey': instance.instance_token,
+              },
+            },
+            { retries: 1, timeoutMs: 8000 }
+          );
+
+          if (qrResponse.ok) {
+            const qrData = await qrResponse.json();
+            const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
+
+            if (qrCodeBase64) {
+              console.log(`[check-instance-status] QR code regenerated successfully, keeping status as connecting`);
+              newStatus = 'connecting';
+              updateData.qr_code = qrCodeBase64;
+              updateData.last_qr_update = new Date().toISOString();
+            } else {
+              console.log(`[check-instance-status] No QR code in response, marking as disconnected`);
+              newStatus = 'disconnected';
+              updateData.phone_number = null;
+              updateData.qr_code = null;
+            }
+          } else {
+            console.log(`[check-instance-status] QR regeneration failed (${qrResponse.status}), marking as disconnected`);
+            newStatus = 'disconnected';
+            updateData.phone_number = null;
+            updateData.qr_code = null;
+          }
+        } catch (error) {
+          console.error(`[check-instance-status] Error regenerating QR:`, error);
+          newStatus = 'disconnected';
+          updateData.phone_number = null;
+          updateData.qr_code = null;
+        }
+      } else {
+        // Was connected or other status, just mark as disconnected
+        newStatus = 'disconnected';
+        updateData.phone_number = null;
+        updateData.qr_code = null;
+        console.log(`[check-instance-status] Clearing phone_number and qr_code due to disconnection`);
+      }
     } else if (state === 'connecting') {
       newStatus = 'connecting';
     }

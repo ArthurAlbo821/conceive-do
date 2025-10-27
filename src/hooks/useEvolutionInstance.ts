@@ -185,6 +185,18 @@ export const useEvolutionInstance = () => {
     return () => clearInterval(interval);
   }, [instance?.last_qr_update, instance?.instance_status, instance?.qr_code]);
 
+  // Auto-recovery: if disconnected but never connected, regenerate QR
+  useEffect(() => {
+    if (
+      instance?.instance_status === 'disconnected' && 
+      !instance.phone_number && // Never connected
+      !loading
+    ) {
+      console.log('[useEvolutionInstance] Instance disconnected without ever connecting, attempting recovery');
+      createInstance(true);
+    }
+  }, [instance?.instance_status, instance?.phone_number, loading]);
+
   return {
     instance,
     loading,

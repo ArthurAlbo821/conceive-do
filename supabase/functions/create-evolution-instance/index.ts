@@ -184,12 +184,13 @@ Deno.serve(async (req) => {
             const qrData = await qrResponse.json();
             const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
 
-            // Update QR code in database
+            // Update QR code AND status in database
             const { data: updatedInstance, error: updateError } = await supabase
               .from('evolution_instances')
               .update({
                 qr_code: qrCodeBase64,
                 last_qr_update: new Date().toISOString(),
+                instance_status: 'connecting', // Force status to connecting when we have a QR
               })
               .eq('id', existingInstance.id)
               .select()
@@ -200,7 +201,7 @@ Deno.serve(async (req) => {
               throw updateError;
             }
 
-            console.log(`[create-evolution-instance] QR code refreshed successfully`);
+            console.log(`[create-evolution-instance] QR code refreshed successfully, status set to connecting`);
 
             return new Response(
               JSON.stringify({
@@ -232,10 +233,65 @@ Deno.serve(async (req) => {
       .eq('user_id', user.id)
       .maybeSingle();
 
-    // If instance exists and is valid (connecting or connected with token), return it
+    // If instance exists and is valid (connecting or connected with token), check if we need to recover QR
     if (currentInstance && 
         (currentInstance.instance_status === 'connecting' || currentInstance.instance_status === 'connected') &&
         currentInstance.instance_token) {
+      
+      // If status is connecting but no QR code, try to recover it from Evolution API
+      if (currentInstance.instance_status === 'connecting' && !currentInstance.qr_code) {
+        console.log(`[create-evolution-instance] Instance is connecting but has no QR code, attempting recovery`);
+        
+        try {
+          const qrResponse = await fetchWithRetry(
+            `${baseUrl}/instance/connect/${currentInstance.instance_name}`,
+            {
+              method: 'GET',
+              headers: {
+                'apikey': currentInstance.instance_token,
+              },
+            },
+            { retries: 2, timeoutMs: 10000 }
+          );
+
+          if (qrResponse.ok) {
+            const qrData = await qrResponse.json();
+            const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
+
+            if (qrCodeBase64) {
+              console.log(`[create-evolution-instance] QR code recovered from Evolution API`);
+              
+              // Update database with recovered QR code
+              const { data: updatedInstance, error: updateError } = await supabase
+                .from('evolution_instances')
+                .update({
+                  qr_code: qrCodeBase64,
+                  last_qr_update: new Date().toISOString(),
+                  instance_status: 'connecting',
+                })
+                .eq('id', currentInstance.id)
+                .select()
+                .single();
+
+              if (updateError) {
+                console.error('[create-evolution-instance] Failed to save recovered QR code:', updateError);
+              } else {
+                return new Response(
+                  JSON.stringify({
+                    success: true,
+                    instance: updatedInstance,
+                  }),
+                  { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                );
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[create-evolution-instance] Failed to recover QR code:', error);
+          // Continue to return existing instance even if recovery fails
+        }
+      }
+      
       console.log(`[create-evolution-instance] Returning existing instance: ${currentInstance.instance_name}`);
       return new Response(
         JSON.stringify({
