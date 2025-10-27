@@ -290,9 +290,25 @@ Deno.serve(async (req) => {
 
     console.log(`[create-evolution-instance] Received instance token from API`);
     console.log(`[create-evolution-instance] Instance created, configuring webhook`);
+    console.log(`[create-evolution-instance] Webhook URL: ${webhookUrl}`);
 
-    // Step 2: Configure webhook
+    // Step 2: Configure webhook with detailed logging
     try {
+      const webhookConfig = {
+        url: webhookUrl,
+        webhook_by_events: false,
+        webhook_base64: false,
+        events: [
+          'QRCODE_UPDATED',
+          'CONNECTION_UPDATE',
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE',
+          'SEND_MESSAGE'
+        ]
+      };
+      
+      console.log(`[create-evolution-instance] Webhook config:`, JSON.stringify(webhookConfig, null, 2));
+      
       const webhookResponse = await fetchWithRetry(
         `${baseUrl}/webhook/set/${instanceName}`,
         {
@@ -301,19 +317,48 @@ Deno.serve(async (req) => {
             'apikey': apiGeneratedToken,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            url: webhookUrl,
-            webhook_by_events: false,
-            webhook_base64: false,
-            events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'],
-          }),
+          body: JSON.stringify(webhookConfig),
         },
         { retries: 2, timeoutMs: 10000 }
       );
 
       if (!webhookResponse.ok) {
         const errorText = await webhookResponse.text();
-        console.error('[create-evolution-instance] Webhook configuration error:', errorText);
+        console.error('[create-evolution-instance] Webhook configuration error:', {
+          status: webhookResponse.status,
+          error: webhookResponse.statusText,
+          response: errorText
+        });
+        
+        // Try alternative webhook configuration format
+        console.log('[create-evolution-instance] Trying alternative webhook configuration...');
+        const altWebhookResponse = await fetchWithRetry(
+          `${baseUrl}/webhook/set/${instanceName}`,
+          {
+            method: 'POST',
+            headers: {
+              'apikey': apiGeneratedToken,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              webhook: {
+                url: webhookUrl,
+                events: true
+              }
+            }),
+          },
+          { retries: 1, timeoutMs: 10000 }
+        );
+        
+        if (!altWebhookResponse.ok) {
+          const altErrorText = await altWebhookResponse.text();
+          console.error('[create-evolution-instance] Alternative webhook config also failed:', altErrorText);
+        } else {
+          console.log('[create-evolution-instance] Alternative webhook configuration successful');
+        }
+      } else {
+        const webhookResult = await webhookResponse.json();
+        console.log('[create-evolution-instance] Webhook configured successfully:', webhookResult);
       }
     } catch (error) {
       console.error('[create-evolution-instance] Webhook configuration failed:', error);

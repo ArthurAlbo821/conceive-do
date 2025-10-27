@@ -82,11 +82,26 @@ const Dashboard = () => {
                   État actuel de votre connexion WhatsApp
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
                 <ConnectionStatus
                   status={instance.instance_status}
                   phoneNumber={instance.phone_number}
                 />
+                <Button 
+                  onClick={() => checkStatus()} 
+                  variant="outline" 
+                  size="sm"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Vérification...
+                    </>
+                  ) : (
+                    '🔄 Vérifier le statut'
+                  )}
+                </Button>
               </CardContent>
             </Card>
 

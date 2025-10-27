@@ -155,13 +155,26 @@ Deno.serve(async (req) => {
     const statusData = await statusResponse.json();
     const state = statusData.instance?.state;
 
-    console.log(`[check-instance-status] Evolution API state: ${state}`);
+    console.log(`[check-instance-status] Evolution API state: ${state}`, JSON.stringify(statusData, null, 2));
 
     let newStatus: string | null = null;
+    const updateData: any = {};
+    
     if (state === 'open') {
       newStatus = 'connected';
+      // Extract phone number if available
+      const owner = statusData.instance?.owner;
+      if (owner) {
+        const phoneNumber = owner.split('@')[0];
+        updateData.phone_number = phoneNumber;
+        console.log(`[check-instance-status] Extracted phone number: ${phoneNumber}`);
+      }
     } else if (state === 'close') {
       newStatus = 'disconnected';
+      // Clear phone number and QR code when disconnected
+      updateData.phone_number = null;
+      updateData.qr_code = null;
+      console.log(`[check-instance-status] Clearing phone_number and qr_code due to disconnection`);
     } else if (state === 'connecting') {
       newStatus = 'connecting';
     }
@@ -170,13 +183,27 @@ Deno.serve(async (req) => {
     if (newStatus && newStatus !== instance.instance_status) {
       console.log(`[check-instance-status] Updating status from ${instance.instance_status} to ${newStatus}`);
       
+      updateData.instance_status = newStatus;
+      
       const { error: updateError } = await supabase
         .from('evolution_instances')
-        .update({ instance_status: newStatus })
+        .update(updateData)
         .eq('id', instance.id);
 
       if (updateError) {
         console.error('[check-instance-status] Error updating status:', updateError);
+      } else {
+        console.log(`[check-instance-status] Status updated successfully:`, updateData);
+      }
+    } else if (Object.keys(updateData).length > 0) {
+      // Update other fields even if status hasn't changed
+      const { error: updateError } = await supabase
+        .from('evolution_instances')
+        .update(updateData)
+        .eq('id', instance.id);
+
+      if (updateError) {
+        console.error('[check-instance-status] Error updating instance data:', updateError);
       }
     }
 

@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.check-instance-status]
 verify_jwt = true
+
+[functions.test-webhook]
+verify_jwt = false
