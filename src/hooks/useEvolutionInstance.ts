@@ -159,6 +159,33 @@ export const useEvolutionInstance = () => {
     }
   }, [instance?.instance_status]);
 
+  // Auto-refresh QR code before expiration
+  useEffect(() => {
+    if (!instance || instance.instance_status !== 'connecting' || !instance.last_qr_update || !instance.qr_code) {
+      return;
+    }
+
+    const checkAndRefreshQR = () => {
+      const lastUpdate = new Date(instance.last_qr_update!).getTime();
+      const now = Date.now();
+      const elapsed = Math.floor((now - lastUpdate) / 1000);
+      
+      // Refresh at 110 seconds (10 seconds before expiration)
+      if (elapsed >= 110) {
+        console.log('[useEvolutionInstance] Auto-refreshing QR code at 1:50');
+        createInstance(true); // forceRefresh = true
+      }
+    };
+
+    // Check immediately
+    checkAndRefreshQR();
+    
+    // Then check every 5 seconds
+    const interval = setInterval(checkAndRefreshQR, 5000);
+
+    return () => clearInterval(interval);
+  }, [instance?.last_qr_update, instance?.instance_status, instance?.qr_code]);
+
   return {
     instance,
     loading,
