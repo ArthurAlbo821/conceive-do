@@ -148,7 +148,11 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (existingInstance && existingInstance.instance_status !== 'error') {
+    // If instance exists and is valid (not error/disconnected and has token), return it
+    if (existingInstance && 
+        existingInstance.instance_status !== 'error' && 
+        existingInstance.instance_status !== 'disconnected' &&
+        existingInstance.instance_token) {
       console.log(`[create-evolution-instance] Returning existing instance: ${existingInstance.instance_name}`);
       return new Response(
         JSON.stringify({
@@ -157,6 +161,41 @@ Deno.serve(async (req) => {
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
+    }
+
+    // If instance exists but is disconnected or has no token, delete it first
+    if (existingInstance && (existingInstance.instance_status === 'disconnected' || !existingInstance.instance_token)) {
+      console.log(`[create-evolution-instance] Deleting invalid instance (status: ${existingInstance.instance_status}, has_token: ${!!existingInstance.instance_token})`);
+      
+      // Delete from database
+      const { error: deleteError } = await supabase
+        .from('evolution_instances')
+        .delete()
+        .eq('id', existingInstance.id);
+      
+      if (deleteError) {
+        console.error('[create-evolution-instance] Error deleting instance:', deleteError);
+      }
+      
+      // Try to delete from Evolution API if we have instance name
+      if (existingInstance.instance_name && existingInstance.instance_token) {
+        const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
+        try {
+          await fetchWithRetry(
+            `${baseUrl}/instance/delete/${existingInstance.instance_name}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'apikey': existingInstance.instance_token,
+              },
+            },
+            { retries: 1, timeoutMs: 5000 }
+          );
+          console.log(`[create-evolution-instance] Deleted instance from Evolution API`);
+        } catch (error) {
+          console.error('[create-evolution-instance] Could not delete from Evolution API (continuing anyway):', error);
+        }
+      }
     }
 
     const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY');
