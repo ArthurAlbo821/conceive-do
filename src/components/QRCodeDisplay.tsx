@@ -13,7 +13,7 @@ interface QRCodeDisplayProps {
 
 export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrUpdate }: QRCodeDisplayProps) => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const QR_EXPIRATION_SECONDS = 120; // 2 minutes
+  const QR_EXPIRATION_SECONDS = 60; // 1 minute
 
   // Gestion d'un cycle local pour redémarrer visuellement le timer à 2:00 dès qu'on atteint 0:00
   const autoRefreshFiredRef = useRef(false);

@@ -250,7 +250,7 @@ Deno.serve(async (req) => {
         const lastUpdateTs = instance.last_qr_update ? new Date(instance.last_qr_update).getTime() : 0;
         const elapsed = Math.floor((Date.now() - lastUpdateTs) / 1000);
 
-        if (!instance.qr_code || elapsed >= 110) {
+        if (!instance.qr_code || elapsed >= 50) {
           console.log(`[check-instance-status] QR code ${!instance.qr_code ? 'missing' : `expired (${elapsed}s old)`}, auto-refreshing...`);
           
           const qrResponse = await fetchWithRetry(
