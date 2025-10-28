@@ -64,7 +64,7 @@ export function MessageThread({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
+      <div className="p-4 border-b flex-shrink-0">
         <h2 className="font-semibold text-lg">
           {contactName || formatPhoneNumber(contactPhone) || 'Contact'}
         </h2>

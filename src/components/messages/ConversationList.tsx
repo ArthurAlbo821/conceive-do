@@ -40,11 +40,7 @@ export function ConversationList({
   onSelectConversation,
 }: ConversationListProps) {
   return (
-    <div className="h-full border-r">
-      <div className="p-4 border-b">
-        <h2 className="font-semibold text-lg">Conversations</h2>
-      </div>
-      <ScrollArea className="h-[calc(100vh-8rem)]">
+    <ScrollArea className="flex-1">
         {conversations.map((conv) => (
           <button
             key={conv.id}
@@ -89,6 +85,5 @@ export function ConversationList({
           </div>
         )}
       </ScrollArea>
-    </div>
   );
 }

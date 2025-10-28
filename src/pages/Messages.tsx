@@ -104,12 +104,12 @@ const Messages = () => {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full">
+      <div className="h-screen flex w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col">
           <Navbar />
-          <div className="flex-1 flex overflow-hidden">
-            <div className="w-80 border-r flex flex-col">
+          <div className="flex-1 flex h-full overflow-hidden">
+            <div className="w-80 border-r flex flex-col h-full">
               <div className="p-3 border-b">
                 <Button
                   variant="outline"
@@ -145,7 +145,7 @@ const Messages = () => {
                 )}
               </div>
             </div>
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
               {selectedConversation ? (
                 <>
                   <MessageThread
