@@ -28,25 +28,28 @@ async function resolveLidToRealNumber(
     return resolved;
   }
   
-  // Option A: Try to extract from messageData.participant
+  // Option B: Try to extract from messageData.participant
   if (messageData.participant && !messageData.participant.includes('@lid')) {
     const resolved = normalizeJid(messageData.participant);
     console.log('[webhook] ✓ Found real number from messageData.participant:', resolved);
     return resolved;
   }
   
-  // Option B: Call Evolution API to get contact info
+  // Option C: Call Evolution API to find contacts with remoteJid
   try {
     console.log('[webhook] Calling Evolution API to resolve LID...');
     const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL') || 'https://cst-evolution-api-kaezwnkk.usecloudstation.com';
     const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+    const pushName = messageData.pushName || null;
     
     if (!evolutionApiKey) {
       console.error('[webhook] EVOLUTION_API_KEY not configured');
       throw new Error('EVOLUTION_API_KEY not configured');
     }
     
-    const response = await fetch(
+    // Step 1: Try to find contact by remoteJid
+    console.log('[webhook] → Query 1: Searching by remoteJid:', lidJid);
+    let response = await fetch(
       `${evolutionApiUrl}/chat/findContacts/${instanceName}`,
       {
         method: 'POST',
@@ -55,36 +58,108 @@ async function resolveLidToRealNumber(
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          where: { id: lidJid }
+          where: { remoteJid: lidJid }
         })
       }
     );
     
+    let contacts = [];
     if (response.ok) {
-      const contacts = await response.json();
-      console.log('[webhook] Evolution API response:', JSON.stringify(contacts));
-      
-      if (contacts && contacts.length > 0) {
-        const contact = contacts[0];
-        // Le contact peut avoir un champ 'number' ou 'id' avec le vrai numéro
-        const realNumber = contact.number || contact.id?.replace('@s.whatsapp.net', '');
-        if (realNumber && !realNumber.includes('@lid')) {
-          const resolved = normalizeJid(realNumber);
-          console.log('[webhook] ✓ Found real number from Evolution API:', resolved);
-          return resolved;
-        }
-      }
+      contacts = await response.json();
+      console.log('[webhook] Evolution API response (by remoteJid):', JSON.stringify(contacts));
     } else {
-      console.error('[webhook] Evolution API error:', response.status, await response.text());
+      console.error('[webhook] Evolution API error (remoteJid query):', response.status, await response.text());
+    }
+    
+    // Step 2: Fallback to pushName search if first query returns LID or nothing useful
+    const hasOnlyLidResult = contacts.length > 0 && contacts.every((c: any) => 
+      !c.remoteJid || c.remoteJid.includes('@lid')
+    );
+    
+    if ((contacts.length === 0 || hasOnlyLidResult) && pushName) {
+      console.log('[webhook] → Query 2 (fallback): Searching by pushName:', pushName);
+      response = await fetch(
+        `${evolutionApiUrl}/chat/findContacts/${instanceName}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': evolutionApiKey,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            where: { pushName: pushName }
+          })
+        }
+      );
+      
+      if (response.ok) {
+        contacts = await response.json();
+        console.log('[webhook] Evolution API response (by pushName):', JSON.stringify(contacts));
+      } else {
+        console.error('[webhook] Evolution API error (pushName query):', response.status, await response.text());
+      }
+    }
+    
+    // Step 3: Filter valid candidates
+    if (contacts && contacts.length > 0) {
+      const candidates = contacts.filter((c: any) => 
+        typeof c.remoteJid === 'string' && 
+        !c.remoteJid.includes('@lid') && 
+        !c.remoteJid.endsWith('@g.us')
+      );
+      
+      console.log('[webhook] Valid candidates found:', candidates.length);
+      
+      if (candidates.length > 0) {
+        // Step 4: Prioritize by pushName if available
+        let bestCandidate = candidates[0];
+        
+        if (pushName) {
+          const pushNameMatch = candidates.find((c: any) => 
+            (c.pushName || '').toLowerCase() === pushName.toLowerCase()
+          );
+          if (pushNameMatch) {
+            bestCandidate = pushNameMatch;
+            console.log('[webhook] Found pushName match:', bestCandidate.pushName);
+          }
+        }
+        
+        // Step 5: Validate normalized length (8-15 digits)
+        for (const candidate of (bestCandidate === candidates[0] ? candidates : [bestCandidate, ...candidates])) {
+          const normalized = normalizeJid(candidate.remoteJid);
+          const numLength = normalized.length;
+          
+          console.log('[webhook] Checking candidate:', {
+            remoteJid: candidate.remoteJid,
+            pushName: candidate.pushName,
+            normalized,
+            length: numLength
+          });
+          
+          if (numLength >= 8 && numLength <= 15) {
+            console.log('[webhook] ✓ Found valid real number from Evolution API:', normalized);
+            return normalized;
+          } else {
+            console.log('[webhook] ✗ Rejected candidate (length:', numLength, 'is outside 8-15)');
+          }
+        }
+        
+        console.warn('[webhook] ⚠️ All candidates rejected due to invalid length');
+      }
     }
   } catch (error) {
     console.error('[webhook] Error calling Evolution API:', error);
   }
   
-  // Fallback: use the LID number part as-is
-  const lidNumber = lidJid.split('@')[0];
-  console.warn('[webhook] ⚠️ Could not resolve LID to real number, using LID as fallback:', lidNumber);
-  return lidNumber;
+  // Fallback: use the LID number part only if it's >= 8 digits
+  const lidNumber = normalizeJid(lidJid);
+  if (lidNumber.length >= 8) {
+    console.warn('[webhook] ⚠️ Using LID as fallback (length >= 8):', lidNumber);
+    return lidNumber;
+  } else {
+    console.error('[webhook] ❌ LID too short (length < 8), returning empty string:', lidNumber);
+    return '';
+  }
 }
 
 Deno.serve(async (req) => {
