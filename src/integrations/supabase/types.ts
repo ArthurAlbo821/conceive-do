@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      conversations: {
+        Row: {
+          contact_name: string | null
+          contact_phone: string
+          created_at: string | null
+          id: string
+          instance_id: string
+          last_message_at: string | null
+          last_message_text: string | null
+          unread_count: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          contact_name?: string | null
+          contact_phone: string
+          created_at?: string | null
+          id?: string
+          instance_id: string
+          last_message_at?: string | null
+          last_message_text?: string | null
+          unread_count?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          contact_name?: string | null
+          contact_phone?: string
+          created_at?: string | null
+          id?: string
+          instance_id?: string
+          last_message_at?: string | null
+          last_message_text?: string | null
+          unread_count?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "evolution_instances"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       evolution_instances: {
         Row: {
           created_at: string
@@ -60,6 +107,63 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: true
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string | null
+          direction: string
+          id: string
+          instance_id: string
+          message_id: string | null
+          receiver_phone: string
+          sender_phone: string
+          status: string | null
+          timestamp: string | null
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string | null
+          direction: string
+          id?: string
+          instance_id: string
+          message_id?: string | null
+          receiver_phone: string
+          sender_phone: string
+          status?: string | null
+          timestamp?: string | null
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string | null
+          direction?: string
+          id?: string
+          instance_id?: string
+          message_id?: string | null
+          receiver_phone?: string
+          sender_phone?: string
+          status?: string | null
+          timestamp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "evolution_instances"
             referencedColumns: ["id"]
           },
         ]

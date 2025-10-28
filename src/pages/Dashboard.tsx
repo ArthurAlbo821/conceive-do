@@ -248,15 +248,20 @@ const Dashboard = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-2">
-                    <p className="text-sm">
-                      <span className="font-semibold">Numéro connecté :</span>{' '}
-                      +{instance.phone_number}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      Votre instance WhatsApp est maintenant opérationnelle. Les messages seront
-                      automatiquement traités.
-                    </p>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-sm">
+                        <span className="font-semibold">Numéro connecté :</span>{' '}
+                        +{instance.phone_number}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Votre instance WhatsApp est maintenant opérationnelle. Les messages seront
+                        automatiquement traités.
+                      </p>
+                    </div>
+                    <Button onClick={() => navigate('/messages')} className="w-full">
+                      Accéder aux messages
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

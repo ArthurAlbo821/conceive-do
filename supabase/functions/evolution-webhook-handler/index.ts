@@ -114,10 +114,111 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Handle MESSAGES_UPSERT event (log only for now)
+    // Handle MESSAGES_UPSERT event
     if (event === 'messages.upsert') {
-      console.log(`[evolution-webhook-handler] Message received for ${instanceName}:`, 
-        JSON.stringify(payload.data, null, 2));
+      const messageData = payload.data;
+      const key = messageData?.key;
+      const message = messageData?.message;
+      
+      if (!key || !message) {
+        console.log('[evolution-webhook-handler] Invalid message data');
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const remoteJid = key.remoteJid;
+      const fromMe = key.fromMe;
+      const messageText = message.conversation || message.extendedTextMessage?.text || '';
+      
+      if (!messageText || !remoteJid) {
+        console.log('[evolution-webhook-handler] Missing message text or remoteJid');
+        return new Response(JSON.stringify({ success: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      const contactPhone = remoteJid.replace('@s.whatsapp.net', '');
+      const instancePhone = instance.phone_number || '';
+      
+      console.log(`[evolution-webhook-handler] Processing message from ${contactPhone} (fromMe: ${fromMe})`);
+      
+      // Créer ou récupérer la conversation
+      const { data: existingConv } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('instance_id', instance.id)
+        .eq('contact_phone', contactPhone)
+        .maybeSingle();
+      
+      let conversationId: string;
+      
+      if (existingConv) {
+        conversationId = existingConv.id;
+        
+        // Mettre à jour la conversation
+        const updateData: any = {
+          last_message_text: messageText,
+          last_message_at: new Date().toISOString(),
+        };
+        
+        // Incrémenter unread_count seulement si message entrant
+        if (!fromMe) {
+          updateData.unread_count = (existingConv.unread_count || 0) + 1;
+        }
+        
+        await supabase
+          .from('conversations')
+          .update(updateData)
+          .eq('id', conversationId);
+      } else {
+        // Créer nouvelle conversation
+        const { data: newConv, error: convError } = await supabase
+          .from('conversations')
+          .insert({
+            user_id: instance.user_id,
+            instance_id: instance.id,
+            contact_phone: contactPhone,
+            last_message_text: messageText,
+            last_message_at: new Date().toISOString(),
+            unread_count: fromMe ? 0 : 1,
+          })
+          .select()
+          .single();
+        
+        if (convError || !newConv) {
+          console.error('[evolution-webhook-handler] Error creating conversation:', convError);
+          return new Response(JSON.stringify({ success: false }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        conversationId = newConv.id;
+      }
+      
+      // Stocker le message
+      const { error: msgError } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          instance_id: instance.id,
+          message_id: key.id,
+          sender_phone: fromMe ? instancePhone : contactPhone,
+          receiver_phone: fromMe ? contactPhone : instancePhone,
+          direction: fromMe ? 'outgoing' : 'incoming',
+          content: messageText,
+          status: 'delivered',
+          timestamp: message.messageTimestamp 
+            ? new Date(message.messageTimestamp * 1000).toISOString()
+            : new Date().toISOString(),
+        });
+      
+      if (msgError) {
+        console.error('[evolution-webhook-handler] Error storing message:', msgError);
+      } else {
+        console.log(`[evolution-webhook-handler] Message stored for ${contactPhone}`);
+      }
     }
 
     return new Response(JSON.stringify({ success: true }), {
