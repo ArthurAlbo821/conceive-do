@@ -247,6 +247,42 @@ Deno.serve(async (req) => {
 
     const availableSlots = computeAvailableSlots();
 
+    // Define appointment tool for structured data collection
+    const appointmentTool = {
+      type: "function",
+      function: {
+        name: "create_appointment_summary",
+        description: "Crée un résumé de rendez-vous avec toutes les informations collectées. N'utilise cette fonction QUE lorsque tu as obtenu TOUTES les 4 informations obligatoires ET que le client a confirmé.",
+        parameters: {
+          type: "object",
+          properties: {
+            duration_minutes: {
+              type: "integer",
+              description: "Durée du rendez-vous en minutes (ex: 30, 60, 90)"
+            },
+            selected_extras: {
+              type: "array",
+              items: { type: "string" },
+              description: "Liste des extras sélectionnés par le client (noms exacts)"
+            },
+            appointment_date: {
+              type: "string",
+              description: "Date du rendez-vous au format YYYY-MM-DD (ex: 2024-03-15)"
+            },
+            appointment_time: {
+              type: "string",
+              description: "Heure de début du rendez-vous au format HH:MM (ex: 14:00)"
+            },
+            total_price: {
+              type: "number",
+              description: "Prix total calculé (tarif de base + extras)"
+            }
+          },
+          required: ["duration_minutes", "selected_extras", "appointment_date", "appointment_time", "total_price"]
+        }
+      }
+    };
+
     // Build system prompt
     const systemPrompt = `Tu es un assistant virtuel professionnel qui aide à gérer les demandes de rendez-vous et à fournir des informations.
 
@@ -270,7 +306,7 @@ DISPONIBILITÉS HEBDOMADAIRES :
 CRÉNEAUX DISPONIBLES (7 prochains jours) :
 - ${availableSlots}
 
-INSTRUCTIONS :
+INSTRUCTIONS GÉNÉRALES :
 1. Réponds de manière professionnelle, courtoise et naturelle
 2. Fournis les informations tarifaires précises si demandées
 3. Propose les extras de façon naturelle quand c'est pertinent
@@ -290,6 +326,41 @@ INSTRUCTIONS :
     - "demain après-midi" = jour suivant entre 14h et 18h
 13. Pour les demandes urgentes (dans moins d'une heure), vérifie si c'est réaliste avec les disponibilités
 14. Si un créneau demandé est déjà passé (dans le passé), propose poliment les prochains créneaux disponibles
+
+PROCESSUS DE PRISE DE RENDEZ-VOUS (CRITIQUE) :
+Pour créer un rendez-vous, tu DOIS collecter ces 4 INFORMATIONS OBLIGATOIRES :
+1. 📅 DATE ET HEURE : Le créneau exact parmi ceux disponibles
+2. ⏱️ DURÉE : Combien de temps (30min, 1h, 1h30, etc.)
+3. ➕ EXTRAS : Est-ce que le client veut ajouter des extras ? (pose la question explicitement)
+4. ✅ CONFIRMATION : Le client confirme explicitement qu'il est d'accord
+
+RÈGLES DE COLLECTE :
+- Pose UNE SEULE question à la fois, ne submerge pas le client
+- Après chaque réponse du client, analyse ce qu'il manque encore
+- NE crée PAS de rendez-vous tant qu'il manque une information
+- Une fois TOUTES les infos collectées, présente un résumé clair :
+  "Parfait ! Je récapitule votre rendez-vous :
+  📅 [Jour] [Date] à [Heure]
+  ⏱️ Durée : [X] minutes
+  ➕ Extras : [Liste ou "Aucun"]
+  💰 Prix total : [Prix]€
+  
+  Confirmez-vous ce rendez-vous ?"
+
+- Attends la confirmation explicite du client (oui, ok, confirme, d'accord, etc.)
+- UNIQUEMENT après confirmation, utilise la fonction create_appointment_summary avec les données exactes
+
+EXEMPLE DE CONVERSATION :
+Client: "Je voudrais un rendez-vous demain"
+Assistant: "Avec plaisir ! Demain j'ai ces créneaux disponibles : 14h, 16h, 18h. Quelle heure vous conviendrait ?"
+Client: "14h c'est parfait"
+Assistant: "Très bien ! Pour la durée, préférez-vous 30 minutes (50€) ou 1 heure (80€) ?"
+Client: "1 heure"
+Assistant: "Parfait ! Souhaitez-vous ajouter des extras ? J'ai par exemple [liste extras avec prix]"
+Client: "Oui, [extra X]"
+Assistant: "Excellent ! Je récapitule : Demain [date] à 14h, 1 heure avec [extra X]. Prix total : 95€. Je confirme ?"
+Client: "Oui"
+[Utilise create_appointment_summary avec toutes les données]
 
 CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comprendre le contexte.`;
 
@@ -324,7 +395,9 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
           ...conversationHistory
         ],
         temperature: 0.7,
-        max_tokens: 500
+        max_tokens: 500,
+        tools: [appointmentTool],
+        tool_choice: "auto"
       }),
     });
 
@@ -338,10 +411,140 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
     }
 
     const openaiData = await openaiResponse.json();
-    const aiResponse = openaiData.choices[0].message.content;
+    const messageResponse = openaiData.choices[0].message;
+    const finishReason = openaiData.choices[0].finish_reason;
 
-    console.log('[ai-auto-reply] OpenAI response:', aiResponse);
+    console.log('[ai-auto-reply] OpenAI finish_reason:', finishReason);
     console.log('[ai-auto-reply] Tokens used:', openaiData.usage);
+
+    // Check if AI wants to create an appointment (tool call)
+    if (finishReason === 'tool_calls' && messageResponse.tool_calls) {
+      const toolCall = messageResponse.tool_calls[0];
+      
+      if (toolCall.function.name === 'create_appointment_summary') {
+        console.log('[ai-auto-reply] Tool call detected - creating appointment');
+        
+        try {
+          const appointmentData = JSON.parse(toolCall.function.arguments);
+          console.log('[ai-auto-reply] Appointment data:', appointmentData);
+
+          // Calculate end_time from start_time + duration
+          const [hours, minutes] = appointmentData.appointment_time.split(':').map(Number);
+          const totalMinutes = hours * 60 + minutes + appointmentData.duration_minutes;
+          const endHours = Math.floor(totalMinutes / 60) % 24;
+          const endMinutes = totalMinutes % 60;
+          const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+
+          // Insert appointment into database
+          const { data: newAppointment, error: insertError } = await supabase
+            .from('appointments')
+            .insert({
+              user_id: user_id,
+              conversation_id: conversation_id,
+              contact_name: contact_name,
+              contact_phone: contact_phone,
+              appointment_date: appointmentData.appointment_date,
+              start_time: appointmentData.appointment_time,
+              end_time: endTime,
+              duration_minutes: appointmentData.duration_minutes,
+              service: prestations, // Main service
+              notes: appointmentData.selected_extras.length > 0 
+                ? `Extras: ${appointmentData.selected_extras.join(', ')}`
+                : null,
+              status: 'confirmed'
+            })
+            .select()
+            .single();
+
+          if (insertError) {
+            console.error('[ai-auto-reply] Error inserting appointment:', insertError);
+            
+            // Send error message to client
+            await supabase.functions.invoke('send-whatsapp-message', {
+              body: {
+                conversation_id,
+                message: "Désolé, une erreur s'est produite lors de la création de votre rendez-vous. Veuillez réessayer ou me contacter directement.",
+                user_id
+              }
+            });
+
+            return new Response(JSON.stringify({ 
+              error: 'Failed to create appointment', 
+              details: insertError 
+            }), {
+              status: 500,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
+
+          console.log('[ai-auto-reply] Appointment created successfully:', newAppointment.id);
+
+          // Format confirmation message
+          const dateObj = new Date(appointmentData.appointment_date);
+          const dayName = DAYS[dateObj.getDay()];
+          const dateFormatted = `${dayName} ${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear()}`;
+          
+          const extrasText = appointmentData.selected_extras.length > 0
+            ? `\n➕ Extras : ${appointmentData.selected_extras.join(', ')}`
+            : '';
+
+          const confirmationMessage = `✅ *Rendez-vous confirmé !*
+
+📅 Date : ${dateFormatted}
+🕐 Heure : ${appointmentData.appointment_time}
+⏱️ Durée : ${appointmentData.duration_minutes} minutes${extrasText}
+💰 Prix total : ${appointmentData.total_price}€
+
+Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin de modifier ou annuler, n'hésitez pas à me contacter.`;
+
+          // Send confirmation message
+          const { error: sendError } = await supabase.functions.invoke('send-whatsapp-message', {
+            body: {
+              conversation_id,
+              message: confirmationMessage,
+              user_id
+            }
+          });
+
+          if (sendError) {
+            console.error('[ai-auto-reply] Error sending confirmation:', sendError);
+          }
+
+          return new Response(JSON.stringify({ 
+            success: true,
+            appointment_created: true,
+            appointment_id: newAppointment.id,
+            tokens_used: openaiData.usage
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+
+        } catch (parseError) {
+          console.error('[ai-auto-reply] Error parsing tool call arguments:', parseError);
+          
+          // Send error message
+          await supabase.functions.invoke('send-whatsapp-message', {
+            body: {
+              conversation_id,
+              message: "Désolé, je n'ai pas pu valider toutes les informations du rendez-vous. Pouvons-nous reprendre depuis le début ?",
+              user_id
+            }
+          });
+
+          return new Response(JSON.stringify({ 
+            error: 'Failed to parse appointment data',
+            details: parseError instanceof Error ? parseError.message : 'Unknown error'
+          }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+      }
+    }
+
+    // Normal conversational response (no tool call)
+    const aiResponse = messageResponse.content;
+    console.log('[ai-auto-reply] Normal response:', aiResponse);
 
     // Send the AI response via send-whatsapp-message
     const { data: sendData, error: sendError } = await supabase.functions.invoke(
