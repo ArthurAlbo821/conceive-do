@@ -12,31 +12,73 @@ function normalizeJid(jid: string): string {
   return jid.split('@')[0].replace(/\D/g, '');
 }
 
-// Resolve LID to real phone number by searching in payload
-function resolveLidToRealNumber(
+// Resolve LID to real phone number by searching in payload or calling Evolution API
+async function resolveLidToRealNumber(
   lidJid: string,
   key: any,
-  messageData: any
-): string {
+  messageData: any,
+  instanceName: string
+): Promise<string> {
   console.log('[webhook] Attempting to resolve LID:', lidJid);
   
-  // Try to extract from key.participant
+  // Option A: Try to extract from key.participant
   if (key.participant && !key.participant.includes('@lid')) {
     const resolved = normalizeJid(key.participant);
     console.log('[webhook] ✓ Found real number from key.participant:', resolved);
     return resolved;
   }
   
-  // Try to extract from messageData.participant
+  // Option A: Try to extract from messageData.participant
   if (messageData.participant && !messageData.participant.includes('@lid')) {
     const resolved = normalizeJid(messageData.participant);
     console.log('[webhook] ✓ Found real number from messageData.participant:', resolved);
     return resolved;
   }
   
-  // Try to extract from messageData.verifiedBizName or other metadata
-  if (messageData.verifiedBizName) {
-    console.log('[webhook] Found verifiedBizName:', messageData.verifiedBizName);
+  // Option B: Call Evolution API to get contact info
+  try {
+    console.log('[webhook] Calling Evolution API to resolve LID...');
+    const evolutionApiUrl = Deno.env.get('EVOLUTION_API_URL') || 'https://cst-evolution-api-kaezwnkk.usecloudstation.com';
+    const evolutionApiKey = Deno.env.get('EVOLUTION_API_KEY');
+    
+    if (!evolutionApiKey) {
+      console.error('[webhook] EVOLUTION_API_KEY not configured');
+      throw new Error('EVOLUTION_API_KEY not configured');
+    }
+    
+    const response = await fetch(
+      `${evolutionApiUrl}/chat/findContacts/${instanceName}`,
+      {
+        method: 'POST',
+        headers: {
+          'apikey': evolutionApiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          where: [{ id: lidJid }]
+        })
+      }
+    );
+    
+    if (response.ok) {
+      const contacts = await response.json();
+      console.log('[webhook] Evolution API response:', JSON.stringify(contacts));
+      
+      if (contacts && contacts.length > 0) {
+        const contact = contacts[0];
+        // Le contact peut avoir un champ 'number' ou 'id' avec le vrai numéro
+        const realNumber = contact.number || contact.id?.replace('@s.whatsapp.net', '');
+        if (realNumber && !realNumber.includes('@lid')) {
+          const resolved = normalizeJid(realNumber);
+          console.log('[webhook] ✓ Found real number from Evolution API:', resolved);
+          return resolved;
+        }
+      }
+    } else {
+      console.error('[webhook] Evolution API error:', response.status, await response.text());
+    }
+  } catch (error) {
+    console.error('[webhook] Error calling Evolution API:', error);
   }
   
   // Fallback: use the LID number part as-is
@@ -203,7 +245,7 @@ Deno.serve(async (req) => {
       // Resolve LID to real number if detected
       let normalizedKey: string;
       if (isLid) {
-        normalizedKey = resolveLidToRealNumber(rawJid, key, messageData);
+        normalizedKey = await resolveLidToRealNumber(rawJid, key, messageData, instanceName);
       } else {
         normalizedKey = normalizeJid(rawJid);
       }
