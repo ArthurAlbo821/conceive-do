@@ -63,6 +63,7 @@ export type Database = {
       }
       evolution_instances: {
         Row: {
+          ai_enabled: boolean | null
           created_at: string
           id: string
           instance_name: string
@@ -76,6 +77,7 @@ export type Database = {
           webhook_url: string
         }
         Insert: {
+          ai_enabled?: boolean | null
           created_at?: string
           id?: string
           instance_name: string
@@ -89,6 +91,7 @@ export type Database = {
           webhook_url: string
         }
         Update: {
+          ai_enabled?: boolean | null
           created_at?: string
           id?: string
           instance_name?: string

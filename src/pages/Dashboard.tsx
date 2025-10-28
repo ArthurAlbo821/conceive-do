@@ -11,6 +11,8 @@ import { useToast } from '@/hooks/use-toast';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
 import { Navbar } from '@/components/Navbar';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -132,6 +134,33 @@ const Dashboard = () => {
       toast({
         title: 'Erreur',
         description: error instanceof Error ? error.message : 'Impossible de reconfigurer le webhook',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleToggleAI = async (enabled: boolean) => {
+    if (!instance?.id) return;
+    
+    try {
+      const { error } = await supabase
+        .from('evolution_instances')
+        .update({ ai_enabled: enabled })
+        .eq('id', instance.id);
+        
+      if (error) throw error;
+      
+      toast({
+        title: enabled ? "IA activée" : "IA désactivée",
+        description: enabled 
+          ? "Les messages recevront des réponses automatiques"
+          : "Les réponses automatiques sont désactivées"
+      });
+    } catch (error) {
+      console.error('Error toggling AI:', error);
+      toast({
+        title: 'Erreur',
+        description: 'Impossible de modifier le paramètre IA',
         variant: 'destructive',
       });
     }
@@ -297,6 +326,24 @@ const Dashboard = () => {
                               automatiquement traités.
                             </p>
                           </div>
+                          
+                          {/* AI Auto-Reply Toggle */}
+                          <div className="flex items-center justify-between p-4 border rounded-lg">
+                            <div className="space-y-0.5">
+                              <Label htmlFor="ai-toggle" className="text-base font-medium">
+                                Réponses automatiques IA
+                              </Label>
+                              <p className="text-sm text-muted-foreground">
+                                Répondre automatiquement aux messages avec OpenAI
+                              </p>
+                            </div>
+                            <Switch
+                              id="ai-toggle"
+                              checked={instance?.ai_enabled || false}
+                              onCheckedChange={handleToggleAI}
+                            />
+                          </div>
+                          
                           <div className="space-y-2">
                             <Button onClick={() => navigate('/messages')} className="w-full">
                               Accéder aux messages

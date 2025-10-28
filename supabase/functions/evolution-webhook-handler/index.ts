@@ -520,6 +520,25 @@ Deno.serve(async (req) => {
       } else {
         console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
       }
+      
+      // Trigger AI auto-reply if enabled and message is incoming
+      if (!fromMe && instance.ai_enabled) {
+        console.log('[webhook] AI auto-reply enabled, triggering...');
+        
+        // Appel asynchrone (fire-and-forget)
+        supabase.functions.invoke('ai-auto-reply', {
+          body: {
+            conversation_id: conversationId,
+            instance_id: instance.id,
+            user_id: instance.user_id,
+            message_text: messageText,
+            contact_name: pushName || normalizedKey,
+            contact_phone: normalizedKey
+          }
+        }).catch(error => {
+          console.error('[webhook] AI auto-reply invocation error:', error);
+        });
+      }
     }
 
     return new Response(JSON.stringify({ success: true }), {

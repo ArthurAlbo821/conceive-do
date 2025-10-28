@@ -12,6 +12,7 @@ export interface EvolutionInstance {
   phone_number: string | null;
   webhook_url: string;
   last_qr_update: string | null;
+  ai_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
