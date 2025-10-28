@@ -12,6 +12,39 @@ function normalizeJid(jid: string): string {
   return jid.split('@')[0].replace(/\D/g, '');
 }
 
+// Resolve LID to real phone number by searching in payload
+function resolveLidToRealNumber(
+  lidJid: string,
+  key: any,
+  messageData: any
+): string {
+  console.log('[webhook] Attempting to resolve LID:', lidJid);
+  
+  // Try to extract from key.participant
+  if (key.participant && !key.participant.includes('@lid')) {
+    const resolved = normalizeJid(key.participant);
+    console.log('[webhook] ✓ Found real number from key.participant:', resolved);
+    return resolved;
+  }
+  
+  // Try to extract from messageData.participant
+  if (messageData.participant && !messageData.participant.includes('@lid')) {
+    const resolved = normalizeJid(messageData.participant);
+    console.log('[webhook] ✓ Found real number from messageData.participant:', resolved);
+    return resolved;
+  }
+  
+  // Try to extract from messageData.verifiedBizName or other metadata
+  if (messageData.verifiedBizName) {
+    console.log('[webhook] Found verifiedBizName:', messageData.verifiedBizName);
+  }
+  
+  // Fallback: use the LID number part as-is
+  const lidNumber = lidJid.split('@')[0];
+  console.warn('[webhook] ⚠️ Could not resolve LID to real number, using LID as fallback:', lidNumber);
+  return lidNumber;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -165,8 +198,16 @@ Deno.serve(async (req) => {
       
       // Normalize phone numbers with LID awareness
       const rawJid = remoteJid;
-      const normalizedKey = rawJid.split('@')[0];
       const isLid = rawJid.includes('@lid');
+      
+      // Resolve LID to real number if detected
+      let normalizedKey: string;
+      if (isLid) {
+        normalizedKey = resolveLidToRealNumber(rawJid, key, messageData);
+      } else {
+        normalizedKey = normalizeJid(rawJid);
+      }
+      
       let instancePhone = normalizeJid(instance.phone_number || '');
       
       // Fallback: use sender from payload if instancePhone is empty
@@ -191,10 +232,13 @@ Deno.serve(async (req) => {
         rawJid,
         normalizedKey,
         isLid,
+        participant: key.participant,
+        messageParticipant: messageData.participant,
         fromMe,
         messageType,
         textLength: messageText.length,
         instancePhone,
+        pushName,
         timestamp: messageTimestamp
       });
 
