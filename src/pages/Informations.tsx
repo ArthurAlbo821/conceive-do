@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useUserInformations, type UserInformations } from "@/hooks/useUserInformations";
+import { AvailabilityManager } from "@/components/availability/AvailabilityManager";
 
 const informationsSchema = z.object({
   prestations: z.array(
@@ -385,6 +386,11 @@ const Informations = () => {
                 </div>
               </form>
             </Form>
+
+            {/* Disponibilités */}
+            <div className="mt-6">
+              <AvailabilityManager />
+            </div>
           </div>
         </main>
       </div>

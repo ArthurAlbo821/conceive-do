@@ -36,6 +36,29 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Get availabilities
+    const { data: availabilities, error: availError } = await supabase
+      .from('availabilities')
+      .select('*')
+      .eq('user_id', user_id)
+      .eq('is_active', true)
+      .order('day_of_week, start_time');
+
+    // Get upcoming appointments (next 7 days)
+    const today = new Date().toISOString().split('T')[0];
+    const nextWeek = new Date(Date.now() + 7*24*60*60*1000).toISOString().split('T')[0];
+    
+    const { data: appointments, error: apptError } = await supabase
+      .from('appointments')
+      .select('*')
+      .eq('user_id', user_id)
+      .gte('appointment_date', today)
+      .lte('appointment_date', nextWeek)
+      .in('status', ['pending', 'confirmed'])
+      .order('appointment_date, start_time');
+
+    console.log('[ai-auto-reply] Found', availabilities?.length || 0, 'availabilities and', appointments?.length || 0, 'upcoming appointments');
+
     // Get last 20 messages from conversation
     const { data: messages, error: msgError } = await supabase
       .from('messages')
@@ -74,6 +97,75 @@ Deno.serve(async (req) => {
 
     const adresse = userInfo.adresse || 'Non spécifiée';
 
+    // Format availabilities for AI
+    const DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+    const availabilityText = availabilities && availabilities.length > 0
+      ? availabilities.map((a: any) => 
+          `${DAYS[a.day_of_week]} : ${a.start_time} - ${a.end_time}`
+        ).join('\n- ')
+      : 'Aucune disponibilité configurée';
+
+    // Compute available slots
+    const computeAvailableSlots = () => {
+      if (!availabilities || availabilities.length === 0) {
+        return "Aucune disponibilité configurée. Demande au client de te contacter directement pour fixer un rendez-vous.";
+      }
+
+      const slots: string[] = [];
+      const currentDate = new Date();
+
+      // For next 7 days
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(currentDate);
+        date.setDate(date.getDate() + i);
+        const dayOfWeek = date.getDay();
+        const dateStr = date.toISOString().split('T')[0];
+
+        // Find availabilities for this day
+        const dayAvails = availabilities.filter((a: any) => a.day_of_week === dayOfWeek);
+
+        if (dayAvails.length === 0) continue;
+
+        // For each availability slot
+        for (const avail of dayAvails) {
+          // Check if there are any appointments that overlap
+          const dayAppointments = appointments?.filter((apt: any) => 
+            apt.appointment_date === dateStr
+          ) || [];
+
+          const startHour = parseInt(avail.start_time.split(':')[0]);
+          const startMinute = parseInt(avail.start_time.split(':')[1]);
+          const endHour = parseInt(avail.end_time.split(':')[0]);
+          const endMinute = parseInt(avail.end_time.split(':')[1]);
+
+          // Generate hourly slots
+          for (let hour = startHour; hour < endHour; hour++) {
+            const slotTime = `${hour.toString().padStart(2, '0')}:00`;
+            const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
+
+            // Check if slot is free
+            const isOccupied = dayAppointments.some((apt: any) => {
+              const aptStart = apt.start_time;
+              const aptEnd = apt.end_time;
+              return (slotTime >= aptStart && slotTime < aptEnd) || 
+                     (slotEndTime > aptStart && slotEndTime <= aptEnd);
+            });
+
+            if (!isOccupied) {
+              const dayName = DAYS[dayOfWeek];
+              slots.push(`${dayName} ${date.getDate()}/${date.getMonth() + 1} à ${slotTime}`);
+            }
+          }
+        }
+      }
+
+      return slots.length > 0 
+        ? slots.slice(0, 10).join('\n- ') // Limit to 10 slots
+        : "Aucun créneau disponible cette semaine. Propose au client de rappeler plus tard ou de se mettre en liste d'attente.";
+    };
+
+    const availableSlots = computeAvailableSlots();
+
     // Build system prompt
     const systemPrompt = `Tu es un assistant virtuel professionnel qui aide à gérer les demandes de rendez-vous et à fournir des informations.
 
@@ -84,15 +176,24 @@ INFORMATIONS DU PROFESSIONNEL :
 - Tarifs : ${tarifs}
 - Adresse : ${adresse}
 
+DISPONIBILITÉS HEBDOMADAIRES :
+- ${availabilityText}
+
+CRÉNEAUX DISPONIBLES (7 prochains jours) :
+- ${availableSlots}
+
 INSTRUCTIONS :
 1. Réponds de manière professionnelle, courtoise et naturelle
 2. Fournis les informations tarifaires précises si demandées
 3. Propose les extras de façon naturelle quand c'est pertinent
 4. Si une demande concerne un service non proposé, refuse poliment sans jugement
-5. Propose de prendre rendez-vous si la conversation l'indique
-6. Réponds en français, adapte ton ton au contexte (formel ou amical selon le client)
-7. Sois concis : évite de répéter des informations déjà mentionnées dans la conversation
-8. Si tu ne sais pas répondre à une question, dis-le simplement
+5. IMPORTANT : Si un client demande un rendez-vous, propose UNIQUEMENT les créneaux disponibles listés ci-dessus
+6. Si aucun créneau n'est disponible, propose de rappeler ultérieurement ou de se mettre en liste d'attente
+7. Quand tu proposes des créneaux, sois précis (jour + date + heure exacte)
+8. Ne propose JAMAIS de créneaux en dehors des horaires et disponibilités indiqués
+9. Réponds en français, adapte ton ton au contexte (formel ou amical selon le client)
+10. Sois concis : évite de répéter des informations déjà mentionnées dans la conversation
+11. Si tu ne sais pas répondre à une question, dis-le simplement
 
 CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comprendre le contexte.`;
 

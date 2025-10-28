@@ -1,4 +1,4 @@
-import { MessageSquare, Home, LogOut, FileText } from "lucide-react";
+import { MessageSquare, Home, LogOut, FileText, Calendar } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -48,6 +48,14 @@ export function AppSidebar() {
                   <NavLink to="/informations">
                     <FileText className="h-4 w-4" />
                     <span>Informations</span>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <NavLink to="/appointments">
+                    <Calendar className="h-4 w-4" />
+                    <span>Rendez-vous</span>
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>

@@ -14,6 +14,90 @@ export type Database = {
   }
   public: {
     Tables: {
+      appointments: {
+        Row: {
+          appointment_date: string
+          contact_name: string
+          contact_phone: string
+          conversation_id: string | null
+          created_at: string
+          duration_minutes: number
+          end_time: string
+          id: string
+          notes: string | null
+          service: string | null
+          start_time: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          appointment_date: string
+          contact_name: string
+          contact_phone: string
+          conversation_id?: string | null
+          created_at?: string
+          duration_minutes: number
+          end_time: string
+          id?: string
+          notes?: string | null
+          service?: string | null
+          start_time: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          appointment_date?: string
+          contact_name?: string
+          contact_phone?: string
+          conversation_id?: string | null
+          created_at?: string
+          duration_minutes?: number
+          end_time?: string
+          id?: string
+          notes?: string | null
+          service?: string | null
+          start_time?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      availabilities: {
+        Row: {
+          created_at: string
+          day_of_week: number
+          end_time: string
+          id: string
+          is_active: boolean
+          start_time: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          day_of_week: number
+          end_time: string
+          id?: string
+          is_active?: boolean
+          start_time: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          is_active?: boolean
+          start_time?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           ai_enabled: boolean | null
