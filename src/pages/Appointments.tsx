@@ -78,7 +78,7 @@ const Appointments = () => {
   };
 
   const upcomingAppointments = appointments
-    .filter((apt) => new Date(apt.appointment_date) >= new Date())
+    .filter((apt) => new Date(`${apt.appointment_date}T${apt.start_time}`) >= new Date())
     .sort((a, b) => {
       const dateA = new Date(`${a.appointment_date}T${a.start_time}`);
       const dateB = new Date(`${b.appointment_date}T${b.start_time}`);
@@ -86,7 +86,7 @@ const Appointments = () => {
     });
 
   const pastAppointments = appointments
-    .filter((apt) => new Date(apt.appointment_date) < new Date())
+    .filter((apt) => new Date(`${apt.appointment_date}T${apt.start_time}`) < new Date())
     .sort((a, b) => {
       const dateA = new Date(`${a.appointment_date}T${a.start_time}`);
       const dateB = new Date(`${b.appointment_date}T${b.start_time}`);
