@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.cleanup-old-instances]
 verify_jwt = true
+
+[functions.reset-current-instance]
+verify_jwt = true
+
+[functions.set-webhook]
+verify_jwt = true

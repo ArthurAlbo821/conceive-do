@@ -75,34 +75,65 @@ const Dashboard = () => {
     
     setIsResetting(true);
     try {
-      // Delete the instance from DB
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      // Call edge function to properly delete from Evolution API and DB
+      const { data, error } = await supabase.functions.invoke('reset-current-instance');
       
-      const { error: deleteError } = await supabase
-        .from('evolution_instances')
-        .delete()
-        .eq('user_id', user.id);
+      if (error) throw error;
       
-      if (deleteError) throw deleteError;
+      if (!data?.success) {
+        throw new Error(data?.error || 'Erreur lors de la suppression');
+      }
       
       toast({
-        title: 'Instance réinitialisée',
+        title: 'Instance supprimée',
         description: 'Création d\'une nouvelle instance en cours...',
       });
       
-      // Recreate instance
+      // Small delay to let the DB update propagate
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Recreate instance with proper webhook configuration
       await createInstance({ forceRefresh: false });
       
     } catch (error) {
       console.error('Error resetting instance:', error);
       toast({
         title: 'Erreur',
-        description: 'Impossible de réinitialiser l\'instance',
+        description: error instanceof Error ? error.message : 'Impossible de réinitialiser l\'instance',
         variant: 'destructive',
       });
     } finally {
       setIsResetting(false);
+    }
+  };
+
+  const handleReconfigureWebhook = async () => {
+    try {
+      toast({
+        title: 'Reconfiguration du webhook',
+        description: 'Configuration en cours...',
+      });
+
+      const { data, error } = await supabase.functions.invoke('set-webhook');
+      
+      if (error) throw error;
+      
+      if (!data?.success) {
+        throw new Error(data?.error || 'Erreur lors de la reconfiguration');
+      }
+      
+      toast({
+        title: 'Webhook reconfiguré',
+        description: 'Les messages devraient maintenant être reçus correctement.',
+      });
+      
+    } catch (error) {
+      console.error('Error reconfiguring webhook:', error);
+      toast({
+        title: 'Erreur',
+        description: error instanceof Error ? error.message : 'Impossible de reconfigurer le webhook',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -266,9 +297,18 @@ const Dashboard = () => {
                               automatiquement traités.
                             </p>
                           </div>
-                          <Button onClick={() => navigate('/messages')} className="w-full">
-                            Accéder aux messages
-                          </Button>
+                          <div className="space-y-2">
+                            <Button onClick={() => navigate('/messages')} className="w-full">
+                              Accéder aux messages
+                            </Button>
+                            <Button 
+                              onClick={handleReconfigureWebhook} 
+                              variant="outline" 
+                              className="w-full"
+                            >
+                              🔧 Reconfigurer le webhook
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
