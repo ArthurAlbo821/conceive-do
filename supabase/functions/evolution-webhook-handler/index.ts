@@ -55,7 +55,7 @@ async function resolveLidToRealNumber(
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          where: [{ id: lidJid }]
+          where: { id: lidJid }
         })
       }
     );
