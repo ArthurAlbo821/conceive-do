@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
+import Fuse from 'https://esm.sh/fuse.js@7.0.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,6 +27,12 @@ interface DucklingEntity {
       to?: { value: string };
     }>;
   };
+}
+
+interface SemanticMatch {
+  match: any | null;
+  confidence: number;
+  alternatives: any[];
 }
 
 async function parseDucklingEntities(text: string, referenceTime?: Date): Promise<DucklingEntity[]> {
@@ -93,6 +100,81 @@ function enrichMessageWithDuckling(originalMessage: string, entities: DucklingEn
   }
   
   return enrichedMessage;
+}
+
+/**
+ * Semantic Matching dynamique - créé un nouvel index pour chaque user
+ * Permet de matcher les intentions du client avec le catalogue spécifique du user
+ */
+function findBestSemanticMatch(
+  clientMessage: string,
+  catalog: any[],
+  searchKeys: string[] = ['name', 'description', 'keywords']
+): SemanticMatch {
+  if (!catalog || catalog.length === 0) {
+    return { match: null, confidence: 0, alternatives: [] };
+  }
+
+  // Créer un nouvel index Fuse.js avec le catalogue du user
+  const fuse = new Fuse(catalog, {
+    keys: searchKeys,
+    threshold: 0.4, // 0 = match parfait, 1 = tout matche
+    includeScore: true,
+    minMatchCharLength: 2,
+    ignoreLocation: true,
+    useExtendedSearch: false
+  });
+
+  const results = fuse.search(clientMessage);
+  
+  if (results.length === 0) {
+    return { match: null, confidence: 0, alternatives: [] };
+  }
+
+  const bestMatch = results[0];
+  // Inverser le score (Fuse retourne 0 = meilleur)
+  const confidence = 1 - (bestMatch.score || 0);
+  
+  console.log('[semantic-match] Best match:', {
+    query: clientMessage,
+    match: bestMatch.item.name || bestMatch.item,
+    confidence: confidence.toFixed(2),
+    alternatives: results.slice(1, 4).map(r => r.item.name || r.item)
+  });
+  
+  return {
+    match: bestMatch.item,
+    confidence,
+    alternatives: results.slice(1, 4).map(r => r.item)
+  };
+}
+
+/**
+ * Log les tentatives d'hallucination pour monitoring
+ */
+async function logHallucinationAttempt(
+  supabase: any,
+  userId: string,
+  conversationId: string,
+  eventType: string,
+  attemptedValue: string,
+  validOptions: string[],
+  clientMessage: string
+) {
+  try {
+    await supabase.from('ai_logs').insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      event_type: eventType,
+      attempted_value: attemptedValue,
+      valid_options: validOptions,
+      message: clientMessage,
+      created_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.warn('[ai-auto-reply] Failed to log hallucination attempt:', error);
+    // Non-bloquant, on continue même si le log échoue
+  }
 }
 
 Deno.serve(async (req) => {
@@ -197,6 +279,12 @@ Deno.serve(async (req) => {
       : 'Non spécifié';
 
     const adresse = userInfo.adresse || 'Non spécifiée';
+
+    console.log('[ai-auto-reply] User catalog loaded:', {
+      prestations: userInfo.prestations?.length || 0,
+      extras: userInfo.extras?.length || 0,
+      tarifs: userInfo.tarifs?.length || 0
+    });
 
     // Format availabilities for AI
     const DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
@@ -406,21 +494,19 @@ Deno.serve(async (req) => {
             },
             selected_extras: {
               type: "array",
-              items: { 
+              items: {
                 type: "string",
-                enum: extraEnum.length > 0 ? extraEnum : []
+                enum: extraEnum.length > 0 ? extraEnum : ["aucun"]
               },
-              description: "Liste des extras sélectionnés (noms exacts parmi ceux disponibles). Peut être vide []"
+              description: "Liste des extras choisis (peut être vide [])"
             },
             appointment_date: {
               type: "string",
-              pattern: "^\\d{4}-\\d{2}-\\d{2}$",
-              description: "Date du rendez-vous au format YYYY-MM-DD (ex: 2025-10-28)"
+              description: "Date du rendez-vous (format: YYYY-MM-DD)"
             },
             appointment_time: {
               type: "string",
-              pattern: "^\\d{2}:\\d{2}$",
-              description: "Heure de début du rendez-vous au format HH:MM (ex: 14:00)"
+              description: "Heure du rendez-vous (format: HH:MM en 24h, ex: 14:30)"
             }
           },
           required: ["prestation", "duration", "selected_extras", "appointment_date", "appointment_time"],
@@ -628,7 +714,78 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
               extras: appointmentData.selected_extras,
               validExtras: validExtras
             });
+
+            // Log l'hallucination pour monitoring
+            if (!validPrestation) {
+              await logHallucinationAttempt(
+                supabase, user_id, conversation_id,
+                'invalid_prestation',
+                appointmentData.prestation,
+                prestationEnum,
+                message_text
+              );
+            }
             
+            // SEMANTIC MATCHING FALLBACK - Essayer de récupérer l'intention
+            console.log('[ai-auto-reply] Attempting semantic matching fallback...');
+            
+            // 1. Essayer de matcher la prestation
+            if (!validPrestation) {
+              const prestationMatch = findBestSemanticMatch(
+                message_text,
+                userInfo.prestations,
+                ['name', 'description', 'keywords']
+              );
+
+              if (prestationMatch.confidence > 0.65) {
+                console.log('[ai-auto-reply] Good semantic match found for prestation!');
+                
+                // Construire le message de clarification avec options
+                const options = [
+                  prestationMatch.match.name,
+                  ...prestationMatch.alternatives.map((a: any) => a.name)
+                ].filter(Boolean);
+                
+                const optionsText = options
+                  .slice(0, 3) // Max 3 options
+                  .map((opt, i) => `${i + 1}. ${opt}`)
+                  .join('\n');
+                
+                const clarificationMessage = `Je ne suis pas sûr de bien comprendre. Souhaitez-vous :\n\n${optionsText}\n\nRépondez avec le numéro ou le nom de la prestation.`;
+                
+                await supabase.functions.invoke('send-whatsapp-message', {
+                  body: { conversation_id, message: clarificationMessage, user_id }
+                });
+                
+                return new Response(JSON.stringify({ 
+                  success: true,
+                  needs_clarification: true,
+                  semantic_match: prestationMatch.match.name,
+                  confidence: prestationMatch.confidence
+                }), {
+                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                });
+              } else {
+                // Confiance trop faible, lister toutes les options
+                console.log('[ai-auto-reply] Low confidence, listing all options');
+                
+                const allPrestations = prestationEnum.map((p, i) => `${i + 1}. ${p}`).join('\n');
+                const fallbackMessage = `Je ne suis pas sûr de comprendre quelle prestation vous souhaitez. Voici ce que je propose :\n\n${allPrestations}\n\nQuelle prestation vous intéresse ?`;
+                
+                await supabase.functions.invoke('send-whatsapp-message', {
+                  body: { conversation_id, message: fallbackMessage, user_id }
+                });
+                
+                return new Response(JSON.stringify({ 
+                  success: true,
+                  needs_full_clarification: true
+                }), {
+                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                });
+              }
+            }
+            
+            // Si validation échoue sans fallback possible
             throw new Error('Invalid prestation, duration, or extras selected');
           }
 
