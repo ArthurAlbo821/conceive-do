@@ -26,3 +26,6 @@ verify_jwt = true
 
 [functions.send-whatsapp-message]
 verify_jwt = true
+
+[functions.merge-conversations]
+verify_jwt = true

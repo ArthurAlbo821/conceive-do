@@ -136,11 +136,28 @@ Deno.serve(async (req) => {
       
       const remoteJid = key.remoteJid;
       const fromMe = key.fromMe;
-      const messageText = message.conversation || message.extendedTextMessage?.text || '';
+      const messageType = messageData.messageType || 'unknown';
+      
+      // Enhanced content extraction - handle multiple message types
+      let messageText = '';
+      if (message.conversation) {
+        messageText = message.conversation;
+      } else if (message.extendedTextMessage?.text) {
+        messageText = message.extendedTextMessage.text;
+      } else if (message.text?.text) {
+        messageText = message.text.text;
+      } else if (message.imageMessage?.caption) {
+        messageText = message.imageMessage.caption || '[Image]';
+      } else if (message.documentMessage?.caption) {
+        messageText = message.documentMessage.caption || '[Document]';
+      } else if (message.ephemeralMessage?.message?.extendedTextMessage?.text) {
+        messageText = message.ephemeralMessage.message.extendedTextMessage.text;
+      }
+      
       const pushName = messageData.pushName || null;
       
       if (!messageText || !remoteJid) {
-        console.log('[evolution-webhook-handler] Missing message text or remoteJid');
+        console.log(`[evolution-webhook-handler] Message ignored - no text content. Type: ${messageType}, remoteJid: ${remoteJid}`);
         return new Response(JSON.stringify({ success: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -148,9 +165,21 @@ Deno.serve(async (req) => {
       
       // Normalize phone numbers
       const contactPhone = normalizeJid(remoteJid);
-      const instancePhone = normalizeJid(instance.phone_number || '');
+      let instancePhone = normalizeJid(instance.phone_number || '');
       
-      console.log(`[evolution-webhook-handler] Processing message from ${contactPhone} (fromMe: ${fromMe})`);
+      // Fallback: use sender from payload if instancePhone is empty
+      if (!instancePhone && payload.sender) {
+        instancePhone = normalizeJid(payload.sender);
+        console.log(`[evolution-webhook-handler] Using sender as instancePhone fallback: ${instancePhone}`);
+        
+        // Update evolution_instances with the phone number
+        await supabase
+          .from('evolution_instances')
+          .update({ phone_number: instancePhone })
+          .eq('id', instance.id);
+      }
+      
+      console.log(`[evolution-webhook-handler] Processing message - Type: ${messageType}, From: ${contactPhone}, FromMe: ${fromMe}, Text length: ${messageText.length}, InstancePhone: ${instancePhone}`);
       
       // Créer ou récupérer la conversation
       const { data: existingConv } = await supabase
@@ -214,8 +243,13 @@ Deno.serve(async (req) => {
       
       // Stocker le message avec les numéros normalisés
       if (!instancePhone) {
-        console.warn('[evolution-webhook-handler] instancePhone is empty, using contactPhone as fallback');
+        console.warn('[evolution-webhook-handler] instancePhone is empty after fallback, using contactPhone');
       }
+      
+      // Use correct timestamp from messageData.messageTimestamp
+      const messageTimestamp = messageData.messageTimestamp 
+        ? new Date(messageData.messageTimestamp * 1000).toISOString()
+        : new Date().toISOString();
       
       const { error: msgError } = await supabase
         .from('messages')
@@ -228,15 +262,13 @@ Deno.serve(async (req) => {
           direction: fromMe ? 'outgoing' : 'incoming',
           content: messageText,
           status: 'delivered',
-          timestamp: message.messageTimestamp 
-            ? new Date(message.messageTimestamp * 1000).toISOString()
-            : new Date().toISOString(),
+          timestamp: messageTimestamp,
         });
       
       if (msgError) {
         console.error('[evolution-webhook-handler] Error storing message:', msgError);
       } else {
-        console.log(`[evolution-webhook-handler] Message stored for ${contactPhone}`);
+        console.log(`[evolution-webhook-handler] Message stored for ${contactPhone} at ${messageTimestamp}`);
       }
     }
 

@@ -30,13 +30,21 @@ export function MessageThread({
     }
   }, [messages]);
 
+  // Format phone number for display
+  const formatPhoneNumber = (phone: string) => {
+    if (!phone) return '';
+    // Remove any existing '+' prefix to avoid duplication
+    const cleaned = phone.replace(/^\+/, '');
+    return `+${cleaned}`;
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
         <h2 className="font-semibold text-lg">
-          {contactName || `+${contactPhone}`}
+          {contactName || formatPhoneNumber(contactPhone)}
         </h2>
-        <p className="text-sm text-muted-foreground">+{contactPhone}</p>
+        <p className="text-sm text-muted-foreground">{formatPhoneNumber(contactPhone)}</p>
       </div>
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
