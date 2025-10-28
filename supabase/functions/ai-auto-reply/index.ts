@@ -6,6 +6,95 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Duckling API configuration
+const DUCKLING_API_URL = 'https://duckling.wit.ai/parse';
+
+interface DucklingEntity {
+  body: string;
+  start: number;
+  end: number;
+  dim: string;
+  latent: boolean;
+  value: {
+    type?: string;
+    value?: string;
+    grain?: string;
+    values?: Array<{
+      value?: string;
+      type?: string;
+      from?: { value: string };
+      to?: { value: string };
+    }>;
+  };
+}
+
+async function parseDucklingEntities(text: string, referenceTime?: Date): Promise<DucklingEntity[]> {
+  const refTime = referenceTime || new Date();
+  const refTimeISO = refTime.toISOString();
+  
+  try {
+    const response = await fetch(DUCKLING_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        text: text,
+        reftime: refTimeISO,
+        locale: 'fr_FR',
+        dims: JSON.stringify(['time', 'duration']),
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('[duckling] API error:', response.status);
+      return [];
+    }
+
+    const entities: DucklingEntity[] = await response.json();
+    console.log('[duckling] Parsed entities:', JSON.stringify(entities, null, 2));
+    
+    return entities;
+  } catch (error) {
+    console.error('[duckling] Parse error:', error);
+    return [];
+  }
+}
+
+function enrichMessageWithDuckling(originalMessage: string, entities: DucklingEntity[]): string {
+  if (entities.length === 0) return originalMessage;
+  
+  let enrichedMessage = originalMessage;
+  const timeEntities = entities.filter(e => e.dim === 'time' && e.value.value);
+  
+  if (timeEntities.length > 0) {
+    enrichedMessage += '\n\n[Informations temporelles détectées:';
+    
+    for (const entity of timeEntities) {
+      const originalText = entity.body;
+      const parsedValue = entity.value.value;
+      
+      if (parsedValue) {
+        const date = new Date(parsedValue);
+        const formatted = date.toLocaleString('fr-FR', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        });
+        
+        enrichedMessage += `\n- "${originalText}" = ${formatted} (${parsedValue})`;
+      }
+    }
+    
+    enrichedMessage += ']';
+  }
+  
+  return enrichedMessage;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -20,6 +109,18 @@ Deno.serve(async (req) => {
     const { conversation_id, user_id, message_text, contact_name, contact_phone } = await req.json();
 
     console.log('[ai-auto-reply] Processing auto-reply for conversation:', conversation_id);
+    console.log('[ai-auto-reply] Original message:', message_text);
+
+    // Get current date for temporal parsing
+    const now = new Date();
+
+    // Parse temporal expressions with Duckling
+    const ducklingEntities = await parseDucklingEntities(message_text, now);
+    const enrichedMessage = enrichMessageWithDuckling(message_text, ducklingEntities);
+
+    if (enrichedMessage !== message_text) {
+      console.log('[ai-auto-reply] Message enriched with Duckling:', enrichedMessage);
+    }
 
     // Get user informations (prestations, extras, taboos, tarifs, adresse)
     const { data: userInfo, error: userInfoError } = await supabase
@@ -105,8 +206,7 @@ Deno.serve(async (req) => {
         ).join('\n- ')
       : 'Aucune disponibilité configurée';
 
-    // Get current date and time context
-    const now = new Date();
+    // Build current date and time context
     const currentDateTime = {
       fullDate: now.toLocaleDateString('fr-FR', { 
         weekday: 'long', 
@@ -293,6 +393,14 @@ DATE ET HEURE ACTUELLES :
 - Date complète : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}
 - Heure : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
 
+INTERPRÉTATION TEMPORELLE :
+- Les messages clients peuvent contenir des informations temporelles enrichies entre crochets [...]
+- Ces informations sont extraites automatiquement via Duckling et sont FIABLES
+- Utilise-les en priorité pour comprendre les demandes temporelles du client
+- Si tu vois "[Informations temporelles détectées: ...]", cela signifie que le parsing temporel a déjà été fait
+- Exemples : "dans 30 min" sera converti en date/heure exacte, "demain à 14h" sera parsé avec la date complète
+- Ces extractions sont plus fiables que l'interprétation manuelle, privilégie-les toujours
+
 INFORMATIONS DU PROFESSIONNEL :
 - Prestations disponibles : ${prestations}
 - Extras disponibles : ${extras}
@@ -365,10 +473,15 @@ Client: "Oui"
 CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comprendre le contexte.`;
 
     // Build messages for OpenAI
-    const conversationHistory = orderedMessages.map(msg => ({
-      role: msg.direction === 'incoming' ? 'user' : 'assistant',
-      content: msg.content
-    }));
+    const conversationHistory = orderedMessages.map((msg, index) => {
+      // Use enriched message for the last incoming message (current user message)
+      const isLastMessage = index === orderedMessages.length - 1 && msg.direction === 'incoming';
+      
+      return {
+        role: msg.direction === 'incoming' ? 'user' : 'assistant',
+        content: isLastMessage ? enrichedMessage : msg.content
+      };
+    });
 
     // Call OpenAI API
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
