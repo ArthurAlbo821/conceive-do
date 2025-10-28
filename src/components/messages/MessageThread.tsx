@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -15,12 +17,18 @@ interface MessageThreadProps {
   messages: Message[];
   contactPhone: string;
   contactName: string | null;
+  conversationId: string;
+  aiEnabled: boolean;
+  onToggleAI: (enabled: boolean) => void;
 }
 
 export function MessageThread({
   messages,
   contactPhone,
   contactName,
+  conversationId,
+  aiEnabled,
+  onToggleAI,
 }: MessageThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
@@ -64,13 +72,24 @@ export function MessageThread({
 
   return (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b flex-shrink-0">
-        <h2 className="font-semibold text-lg">
-          {contactName || formatPhoneNumber(contactPhone) || 'Contact'}
-        </h2>
-        {contactName && formatPhoneNumber(contactPhone) && (
-          <p className="text-sm text-muted-foreground">{formatPhoneNumber(contactPhone)}</p>
-        )}
+      <div className="p-4 border-b flex-shrink-0 flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold text-lg">
+            {contactName || formatPhoneNumber(contactPhone) || 'Contact'}
+          </h2>
+          {contactName && formatPhoneNumber(contactPhone) && (
+            <p className="text-sm text-muted-foreground">{formatPhoneNumber(contactPhone)}</p>
+          )}
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="ai-toggle" className="text-sm">IA</Label>
+          <Switch
+            id="ai-toggle"
+            checked={aiEnabled}
+            onCheckedChange={onToggleAI}
+          />
+        </div>
       </div>
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">

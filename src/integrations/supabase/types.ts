@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       conversations: {
         Row: {
+          ai_enabled: boolean | null
           contact_name: string | null
           contact_phone: string
           created_at: string | null
@@ -28,6 +29,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          ai_enabled?: boolean | null
           contact_name?: string | null
           contact_phone: string
           created_at?: string | null
@@ -40,6 +42,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          ai_enabled?: boolean | null
           contact_name?: string | null
           contact_phone?: string
           created_at?: string | null

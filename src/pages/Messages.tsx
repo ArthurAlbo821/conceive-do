@@ -49,6 +49,31 @@ const Messages = () => {
     }
   }, [conversations, selectedConversationId]);
 
+  const handleToggleAI = async (enabled: boolean) => {
+    if (!selectedConversationId) return;
+    
+    const { error } = await supabase
+      .from('conversations')
+      .update({ ai_enabled: enabled })
+      .eq('id', selectedConversationId);
+      
+    if (error) {
+      toast({
+        title: "Erreur",
+        description: "Impossible de modifier le paramètre IA",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    toast({
+      title: enabled ? "IA activée" : "IA désactivée",
+      description: enabled 
+        ? "L'IA répondra automatiquement à ce contact"
+        : "L'IA ne répondra plus à ce contact",
+    });
+  };
+
   const handleMergeConversations = async () => {
     setMerging(true);
     try {
@@ -153,6 +178,9 @@ const Messages = () => {
                       messages={messages}
                       contactPhone={selectedConversation.contact_phone}
                       contactName={selectedConversation.contact_name}
+                      conversationId={selectedConversationId}
+                      aiEnabled={selectedConversation.ai_enabled || false}
+                      onToggleAI={handleToggleAI}
                     />
                   </div>
                   <div className="flex-shrink-0 border-t">

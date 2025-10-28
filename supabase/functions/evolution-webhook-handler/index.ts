@@ -521,9 +521,16 @@ Deno.serve(async (req) => {
         console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
       }
       
-      // Trigger AI auto-reply if enabled and message is incoming
-      if (!fromMe && instance.ai_enabled) {
-        console.log('[webhook] AI auto-reply enabled, triggering...');
+      // Trigger AI auto-reply if enabled for this conversation and message is incoming
+      // First, check if AI is enabled for this conversation
+      const { data: conversation, error: convError } = await supabase
+        .from('conversations')
+        .select('ai_enabled')
+        .eq('id', conversationId)
+        .single();
+      
+      if (!fromMe && conversation && conversation.ai_enabled) {
+        console.log('[webhook] AI auto-reply enabled for this conversation, triggering...');
         
         // Appel asynchrone (fire-and-forget)
         supabase.functions.invoke('ai-auto-reply', {
