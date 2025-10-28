@@ -148,14 +148,18 @@ const Messages = () => {
             <div className="flex-1 flex flex-col h-full overflow-hidden">
               {selectedConversation ? (
                 <>
-                  <MessageThread
-                    messages={messages}
-                    contactPhone={selectedConversation.contact_phone}
-                    contactName={selectedConversation.contact_name}
-                  />
-                  <MessageInput
-                    onSend={(msg) => sendMessage(selectedConversationId!, msg)}
-                  />
+                  <div className="flex-1 overflow-hidden">
+                    <MessageThread
+                      messages={messages}
+                      contactPhone={selectedConversation.contact_phone}
+                      contactName={selectedConversation.contact_name}
+                    />
+                  </div>
+                  <div className="flex-shrink-0 border-t">
+                    <MessageInput
+                      onSend={(msg) => sendMessage(selectedConversationId!, msg)}
+                    />
+                  </div>
                 </>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-muted-foreground">
