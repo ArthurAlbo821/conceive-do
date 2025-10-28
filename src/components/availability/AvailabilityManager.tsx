@@ -17,6 +17,23 @@ export const AvailabilityManager = () => {
 
   const handleAdd = () => {
     if (!startTime || !endTime) return;
+    
+    // Validation: check for overlaps on the same day
+    const dayAvails = groupedByDay[selectedDay] || [];
+    const hasOverlap = dayAvails.some((avail) => {
+      const existingStart = avail.start_time;
+      const existingEnd = avail.end_time;
+      return (
+        (startTime >= existingStart && startTime < existingEnd) ||
+        (endTime > existingStart && endTime <= existingEnd) ||
+        (startTime <= existingStart && endTime >= existingEnd)
+      );
+    });
+
+    if (hasOverlap) {
+      return; // Let the mutation handle the error toast
+    }
+
     addAvailability({
       day_of_week: selectedDay,
       start_time: startTime,
@@ -42,7 +59,8 @@ export const AvailabilityManager = () => {
       <CardHeader>
         <CardTitle>Disponibilités hebdomadaires</CardTitle>
         <CardDescription>
-          Définissez vos horaires de disponibilité pour chaque jour de la semaine
+          Définissez vos horaires de disponibilité pour chaque jour de la semaine. 
+          Vous pouvez ajouter plusieurs créneaux horaires pour un même jour.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -80,9 +98,16 @@ export const AvailabilityManager = () => {
           <div className="flex items-end">
             <Button onClick={handleAdd} className="w-full">
               <Plus className="mr-2 h-4 w-4" />
-              Ajouter
+              Ajouter un créneau
             </Button>
           </div>
+        </div>
+
+        <div className="bg-muted/50 p-3 rounded-lg">
+          <p className="text-sm text-muted-foreground">
+            💡 <strong>Astuce :</strong> Vous pouvez ajouter plusieurs créneaux horaires pour le même jour 
+            (ex: Lundi 00h-02h et Lundi 12h-00h). Sélectionnez simplement à nouveau le jour et ajoutez un nouveau créneau.
+          </p>
         </div>
 
         <div className="space-y-4">
