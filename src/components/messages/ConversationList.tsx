@@ -3,6 +3,15 @@ import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
 
+// Format phone number for display
+function formatPhoneNumber(phone: string): string {
+  if (!phone) return '';
+  // Remove any remaining @ suffixes
+  const cleaned = phone.split('@')[0];
+  // Add + prefix if not present
+  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+}
+
 interface Conversation {
   id: string;
   contact_phone: string;
@@ -39,7 +48,7 @@ export function ConversationList({
           >
             <div className="flex justify-between items-start mb-1">
               <span className="font-semibold">
-                {conv.contact_name || `+${conv.contact_phone}`}
+                {conv.contact_name || formatPhoneNumber(conv.contact_phone)}
               </span>
               {conv.unread_count > 0 && (
                 <Badge variant="default" className="ml-2">

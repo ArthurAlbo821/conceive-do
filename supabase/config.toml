@@ -20,3 +20,9 @@ verify_jwt = true
 
 [functions.set-webhook]
 verify_jwt = true
+
+[functions.sanitize-jids]
+verify_jwt = true
+
+[functions.send-whatsapp-message]
+verify_jwt = true

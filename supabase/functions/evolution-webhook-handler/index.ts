@@ -5,6 +5,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Normalize WhatsApp JID to clean phone number
+function normalizeJid(jid: string): string {
+  if (!jid) return '';
+  // Remove known suffixes: @s.whatsapp.net, @lid, @g.us, etc.
+  return jid.split('@')[0];
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -130,6 +137,7 @@ Deno.serve(async (req) => {
       const remoteJid = key.remoteJid;
       const fromMe = key.fromMe;
       const messageText = message.conversation || message.extendedTextMessage?.text || '';
+      const pushName = messageData.pushName || null;
       
       if (!messageText || !remoteJid) {
         console.log('[evolution-webhook-handler] Missing message text or remoteJid');
@@ -138,8 +146,9 @@ Deno.serve(async (req) => {
         });
       }
       
-      const contactPhone = remoteJid.replace('@s.whatsapp.net', '');
-      const instancePhone = instance.phone_number || '';
+      // Normalize phone numbers
+      const contactPhone = normalizeJid(remoteJid);
+      const instancePhone = normalizeJid(instance.phone_number || '');
       
       console.log(`[evolution-webhook-handler] Processing message from ${contactPhone} (fromMe: ${fromMe})`);
       
@@ -162,6 +171,11 @@ Deno.serve(async (req) => {
           last_message_at: new Date().toISOString(),
         };
         
+        // Mettre à jour le nom si disponible
+        if (pushName && !existingConv.contact_name) {
+          updateData.contact_name = pushName;
+        }
+        
         // Incrémenter unread_count seulement si message entrant
         if (!fromMe) {
           updateData.unread_count = (existingConv.unread_count || 0) + 1;
@@ -179,6 +193,7 @@ Deno.serve(async (req) => {
             user_id: instance.user_id,
             instance_id: instance.id,
             contact_phone: contactPhone,
+            contact_name: pushName,
             last_message_text: messageText,
             last_message_at: new Date().toISOString(),
             unread_count: fromMe ? 0 : 1,
@@ -197,15 +212,19 @@ Deno.serve(async (req) => {
         conversationId = newConv.id;
       }
       
-      // Stocker le message
+      // Stocker le message avec les numéros normalisés
+      if (!instancePhone) {
+        console.warn('[evolution-webhook-handler] instancePhone is empty, using contactPhone as fallback');
+      }
+      
       const { error: msgError } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
           instance_id: instance.id,
           message_id: key.id,
-          sender_phone: fromMe ? instancePhone : contactPhone,
-          receiver_phone: fromMe ? contactPhone : instancePhone,
+          sender_phone: fromMe ? (instancePhone || contactPhone) : contactPhone,
+          receiver_phone: fromMe ? contactPhone : (instancePhone || contactPhone),
           direction: fromMe ? 'outgoing' : 'incoming',
           content: messageText,
           status: 'delivered',

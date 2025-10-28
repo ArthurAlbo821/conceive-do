@@ -30,6 +30,13 @@ const Messages = () => {
     checkAuth();
   }, [navigate]);
 
+  // Auto-select first conversation if none selected
+  useEffect(() => {
+    if (conversations.length > 0 && !selectedConversationId) {
+      setSelectedConversationId(conversations[0].id);
+    }
+  }, [conversations, selectedConversationId]);
+
   if (!instance || instance.instance_status !== "connected") {
     return (
       <SidebarProvider>
