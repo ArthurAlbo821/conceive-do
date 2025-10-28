@@ -43,6 +43,13 @@ const Messages = () => {
   const handleMergeConversations = async () => {
     setMerging(true);
     try {
+      // First sanitize JIDs to normalize @lid entries
+      const { error: sanitizeError } = await supabase.functions.invoke('sanitize-jids');
+      if (sanitizeError) {
+        console.error('Error sanitizing JIDs:', sanitizeError);
+      }
+      
+      // Then merge duplicate conversations
       const { data, error } = await supabase.functions.invoke('merge-conversations');
       
       if (error) throw error;

@@ -163,8 +163,10 @@ Deno.serve(async (req) => {
         });
       }
       
-      // Normalize phone numbers
-      const contactPhone = normalizeJid(remoteJid);
+      // Normalize phone numbers with LID awareness
+      const rawJid = remoteJid;
+      const normalizedKey = rawJid.split('@')[0];
+      const isLid = rawJid.includes('@lid');
       let instancePhone = normalizeJid(instance.phone_number || '');
       
       // Fallback: use sender from payload if instancePhone is empty
@@ -179,33 +181,65 @@ Deno.serve(async (req) => {
           .eq('id', instance.id);
       }
       
-      console.log(`[evolution-webhook-handler] Processing message - Type: ${messageType}, From: ${contactPhone}, FromMe: ${fromMe}, Text length: ${messageText.length}, InstancePhone: ${instancePhone}`);
+      // Use correct timestamp from messageData.messageTimestamp
+      const messageTimestamp = messageData.messageTimestamp 
+        ? new Date(messageData.messageTimestamp * 1000).toISOString()
+        : new Date().toISOString();
       
-      // Créer ou récupérer la conversation
-      const { data: existingConv } = await supabase
+      console.log('[webhook] Message details:', {
+        remoteJid,
+        rawJid,
+        normalizedKey,
+        isLid,
+        fromMe,
+        messageType,
+        textLength: messageText.length,
+        instancePhone,
+        timestamp: messageTimestamp
+      });
+
+      // Search for existing conversation using both raw and normalized keys
+      const { data: existingConvs, error: searchError } = await supabase
         .from('conversations')
         .select('*')
         .eq('instance_id', instance.id)
-        .eq('contact_phone', contactPhone)
-        .maybeSingle();
-      
+        .in('contact_phone', [rawJid, normalizedKey])
+        .order('last_message_at', { ascending: false });
+
+      if (searchError) {
+        console.error('[webhook] Error searching conversations:', searchError);
+      }
+
       let conversationId: string;
       
-      if (existingConv) {
+      if (existingConvs && existingConvs.length > 0) {
+        // Use the most recent conversation
+        const existingConv = existingConvs[0];
         conversationId = existingConv.id;
         
-        // Mettre à jour la conversation
+        console.log('[webhook] Using existing conversation:', conversationId, 'with contact_phone:', existingConv.contact_phone);
+        
+        // Migrate to normalized key if needed
+        if (existingConv.contact_phone !== normalizedKey) {
+          console.log('[webhook] Migrating contact_phone from', existingConv.contact_phone, 'to', normalizedKey);
+          await supabase
+            .from('conversations')
+            .update({ contact_phone: normalizedKey })
+            .eq('id', conversationId);
+        }
+        
+        // Update existing conversation
         const updateData: any = {
           last_message_text: messageText,
-          last_message_at: new Date().toISOString(),
+          last_message_at: messageTimestamp,
         };
         
-        // Mettre à jour le nom si disponible
-        if (pushName && !existingConv.contact_name) {
+        // Update name if available
+        if (pushName) {
           updateData.contact_name = pushName;
         }
         
-        // Incrémenter unread_count seulement si message entrant
+        // Increment unread_count only for incoming messages
         if (!fromMe) {
           updateData.unread_count = (existingConv.unread_count || 0) + 1;
         }
@@ -215,23 +249,24 @@ Deno.serve(async (req) => {
           .update(updateData)
           .eq('id', conversationId);
       } else {
-        // Créer nouvelle conversation
+        // Create new conversation with normalized key
+        console.log('[webhook] Creating new conversation with contact_phone:', normalizedKey);
         const { data: newConv, error: convError } = await supabase
           .from('conversations')
           .insert({
             user_id: instance.user_id,
             instance_id: instance.id,
-            contact_phone: contactPhone,
-            contact_name: pushName,
+            contact_phone: normalizedKey,
+            contact_name: pushName || normalizedKey,
             last_message_text: messageText,
-            last_message_at: new Date().toISOString(),
+            last_message_at: messageTimestamp,
             unread_count: fromMe ? 0 : 1,
           })
           .select()
           .single();
         
         if (convError || !newConv) {
-          console.error('[evolution-webhook-handler] Error creating conversation:', convError);
+          console.error('[webhook] Error creating conversation:', convError);
           return new Response(JSON.stringify({ success: false }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -241,15 +276,10 @@ Deno.serve(async (req) => {
         conversationId = newConv.id;
       }
       
-      // Stocker le message avec les numéros normalisés
+      // Store the message with normalized numbers
       if (!instancePhone) {
-        console.warn('[evolution-webhook-handler] instancePhone is empty after fallback, using contactPhone');
+        console.warn('[webhook] instancePhone is empty after fallback, using normalizedKey');
       }
-      
-      // Use correct timestamp from messageData.messageTimestamp
-      const messageTimestamp = messageData.messageTimestamp 
-        ? new Date(messageData.messageTimestamp * 1000).toISOString()
-        : new Date().toISOString();
       
       const { error: msgError } = await supabase
         .from('messages')
@@ -257,8 +287,8 @@ Deno.serve(async (req) => {
           conversation_id: conversationId,
           instance_id: instance.id,
           message_id: key.id,
-          sender_phone: fromMe ? (instancePhone || contactPhone) : contactPhone,
-          receiver_phone: fromMe ? contactPhone : (instancePhone || contactPhone),
+          sender_phone: fromMe ? (instancePhone || normalizedKey) : normalizedKey,
+          receiver_phone: fromMe ? normalizedKey : (instancePhone || normalizedKey),
           direction: fromMe ? 'outgoing' : 'incoming',
           content: messageText,
           status: 'delivered',
@@ -266,9 +296,9 @@ Deno.serve(async (req) => {
         });
       
       if (msgError) {
-        console.error('[evolution-webhook-handler] Error storing message:', msgError);
+        console.error('[webhook] Error storing message:', msgError);
       } else {
-        console.log(`[evolution-webhook-handler] Message stored for ${contactPhone} at ${messageTimestamp}`);
+        console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
       }
     }
 

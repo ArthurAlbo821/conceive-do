@@ -6,10 +6,17 @@ import { fr } from "date-fns/locale";
 // Format phone number for display
 function formatPhoneNumber(phone: string): string {
   if (!phone) return '';
-  // Remove any remaining @ suffixes
+  // Remove any WhatsApp-specific suffixes
   const cleaned = phone.split('@')[0];
-  // Add + prefix if not present
-  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+  
+  // Only display if it looks like a valid E.164 number
+  if (/^\+?\d{7,15}$/.test(cleaned)) {
+    // Add + prefix if not present
+    return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+  }
+  
+  // For LID identifiers or invalid formats, return empty
+  return '';
 }
 
 interface Conversation {
@@ -47,11 +54,18 @@ export function ConversationList({
             }`}
           >
             <div className="flex justify-between items-start mb-1">
-              <span className="font-semibold">
-                {conv.contact_name || formatPhoneNumber(conv.contact_phone)}
-              </span>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate">
+                  {conv.contact_name || formatPhoneNumber(conv.contact_phone) || 'Contact'}
+                </div>
+                {conv.contact_name && formatPhoneNumber(conv.contact_phone) && (
+                  <div className="text-xs text-muted-foreground truncate">
+                    {formatPhoneNumber(conv.contact_phone)}
+                  </div>
+                )}
+              </div>
               {conv.unread_count > 0 && (
-                <Badge variant="default" className="ml-2">
+                <Badge variant="default" className="ml-2 flex-shrink-0">
                   {conv.unread_count}
                 </Badge>
               )}

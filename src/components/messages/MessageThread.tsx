@@ -33,18 +33,28 @@ export function MessageThread({
   // Format phone number for display
   const formatPhoneNumber = (phone: string) => {
     if (!phone) return '';
-    // Remove any existing '+' prefix to avoid duplication
-    const cleaned = phone.replace(/^\+/, '');
-    return `+${cleaned}`;
+    // Remove any WhatsApp-specific suffixes
+    const cleaned = phone.split('@')[0];
+    
+    // Only display if it looks like a valid E.164 number
+    if (/^\+?\d{7,15}$/.test(cleaned)) {
+      // Add + prefix if not present
+      return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+    }
+    
+    // For LID identifiers or invalid formats, return empty
+    return '';
   };
 
   return (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b">
         <h2 className="font-semibold text-lg">
-          {contactName || formatPhoneNumber(contactPhone)}
+          {contactName || formatPhoneNumber(contactPhone) || 'Contact'}
         </h2>
-        <p className="text-sm text-muted-foreground">{formatPhoneNumber(contactPhone)}</p>
+        {contactName && formatPhoneNumber(contactPhone) && (
+          <p className="text-sm text-muted-foreground">{formatPhoneNumber(contactPhone)}</p>
+        )}
       </div>
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
