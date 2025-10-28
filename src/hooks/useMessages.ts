@@ -2,7 +2,12 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
-export function useMessages(conversationId: string | null, instanceId?: string | null, contactPhone?: string | null) {
+export function useMessages(
+  conversationId: string | null,
+  instanceId?: string | null,
+  contactPhone?: string | null,
+  onConversationSwitch?: (id: string) => void
+) {
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
@@ -65,9 +70,8 @@ export function useMessages(conversationId: string | null, instanceId?: string |
             
             // If sender or receiver matches the current contact's normalized phone
             if (normalizedSender === normalizedContactPhone || normalizedReceiver === normalizedContactPhone) {
-              console.log(`[useMessages] Message for same contact detected in different conversation, refetching...`);
-              // Refetch messages to get the latest state
-              fetchMessages();
+              console.log(`[useMessages] Message for same contact detected in different conversation (${newMessage.conversation_id}), switching...`);
+              onConversationSwitch?.(newMessage.conversation_id);
             }
           }
         }

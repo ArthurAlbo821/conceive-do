@@ -27,7 +27,8 @@ const Messages = () => {
   const { messages, sendMessage } = useMessages(
     selectedConversationId, 
     instance?.id || null,
-    selectedConversation?.contact_phone || null
+    selectedConversation?.contact_phone || null,
+    (newId) => setSelectedConversationId(newId)
   );
   const [merging, setMerging] = useState(false);
 
