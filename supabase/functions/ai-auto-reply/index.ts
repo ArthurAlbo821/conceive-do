@@ -347,38 +347,84 @@ Deno.serve(async (req) => {
 
     const availableSlots = computeAvailableSlots();
 
-    // Define appointment tool for structured data collection
+    // Build dynamic enums from user data for strict validation
+    const prestationNames = Array.isArray(userInfo.prestations) 
+      ? userInfo.prestations.map((p: any) => p.name)
+      : [];
+
+    const extraOptions = Array.isArray(userInfo.extras)
+      ? userInfo.extras.map((e: any) => ({
+          name: e.name,
+          price: e.price
+        }))
+      : [];
+
+    const tarifOptions = Array.isArray(userInfo.tarifs)
+      ? userInfo.tarifs.map((t: any) => ({
+          duration: t.duration,
+          price: t.price
+        }))
+      : [];
+
+    // Create enum arrays for strict validation
+    const prestationEnum = prestationNames;
+    const extraEnum = extraOptions.map((e: any) => e.name);
+    const durationEnum = tarifOptions.map((t: any) => t.duration);
+
+    // Create price mappings for backend validation
+    const durationToPriceMap = Object.fromEntries(
+      tarifOptions.map((t: any) => [t.duration, t.price])
+    );
+    const extraToPriceMap = Object.fromEntries(
+      extraOptions.map((e: any) => [e.name, e.price])
+    );
+
+    console.log('[ai-auto-reply] Dynamic enums created:', {
+      prestations: prestationEnum,
+      durations: durationEnum,
+      extras: extraEnum
+    });
+
+    // Define appointment tool with strict enums for zero hallucination
     const appointmentTool = {
       type: "function",
       function: {
         name: "create_appointment_summary",
-        description: "Crée un résumé de rendez-vous avec toutes les informations collectées. N'utilise cette fonction QUE lorsque tu as obtenu TOUTES les 4 informations obligatoires ET que le client a confirmé.",
+        description: "Crée un résumé de rendez-vous avec toutes les informations collectées. N'utilise cette fonction QUE lorsque tu as obtenu TOUTES les 5 informations obligatoires ET que le client a confirmé.",
         parameters: {
           type: "object",
           properties: {
-            duration_minutes: {
-              type: "integer",
-              description: "Durée du rendez-vous en minutes (ex: 30, 60, 90)"
+            prestation: {
+              type: "string",
+              enum: prestationEnum.length > 0 ? prestationEnum : ["default"],
+              description: "La prestation choisie parmi celles disponibles"
+            },
+            duration: {
+              type: "string",
+              enum: durationEnum.length > 0 ? durationEnum : ["30min"],
+              description: "Durée du rendez-vous (format: '30min', '1h', etc.)"
             },
             selected_extras: {
               type: "array",
-              items: { type: "string" },
-              description: "Liste des extras sélectionnés par le client (noms exacts)"
+              items: { 
+                type: "string",
+                enum: extraEnum.length > 0 ? extraEnum : []
+              },
+              description: "Liste des extras sélectionnés (noms exacts parmi ceux disponibles). Peut être vide []"
             },
             appointment_date: {
               type: "string",
-              description: "Date du rendez-vous au format YYYY-MM-DD (ex: 2024-03-15)"
+              pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+              description: "Date du rendez-vous au format YYYY-MM-DD (ex: 2025-10-28)"
             },
             appointment_time: {
               type: "string",
+              pattern: "^\\d{2}:\\d{2}$",
               description: "Heure de début du rendez-vous au format HH:MM (ex: 14:00)"
-            },
-            total_price: {
-              type: "number",
-              description: "Prix total calculé (tarif de base + extras)"
             }
           },
-          required: ["duration_minutes", "selected_extras", "appointment_date", "appointment_time", "total_price"]
+          required: ["prestation", "duration", "selected_extras", "appointment_date", "appointment_time"],
+          additionalProperties: false
         }
       }
     };
@@ -436,39 +482,66 @@ INSTRUCTIONS GÉNÉRALES :
 14. Si un créneau demandé est déjà passé (dans le passé), propose poliment les prochains créneaux disponibles
 
 PROCESSUS DE PRISE DE RENDEZ-VOUS (CRITIQUE) :
-Pour créer un rendez-vous, tu DOIS collecter ces 4 INFORMATIONS OBLIGATOIRES :
-1. 📅 DATE ET HEURE : Le créneau exact parmi ceux disponibles
-2. ⏱️ DURÉE : Combien de temps (30min, 1h, 1h30, etc.)
-3. ➕ EXTRAS : Est-ce que le client veut ajouter des extras ? (pose la question explicitement)
-4. ✅ CONFIRMATION : Le client confirme explicitement qu'il est d'accord
+Pour créer un rendez-vous, tu DOIS collecter ces 5 INFORMATIONS OBLIGATOIRES :
+
+1. 🎯 PRESTATION : Quelle prestation souhaite le client ?
+   → Prestations disponibles : ${prestationEnum.length > 0 ? prestationEnum.join(', ') : 'Non configuré'}
+   → Tu DOIS choisir parmi cette liste UNIQUEMENT
+
+2. ⏱️ DURÉE : Quelle durée de rendez-vous ?
+   → Durées disponibles : ${durationEnum.length > 0 ? durationEnum.join(', ') : 'Non configuré'}
+   → Tarifs correspondants : ${tarifOptions.length > 0 ? tarifOptions.map((t: any) => `${t.duration} = ${t.price}€`).join(', ') : 'Non configuré'}
+
+3. ➕ EXTRAS : Est-ce que le client veut des extras ?
+   → Extras disponibles : ${extraEnum.length > 0 ? extraEnum.map((e: string) => {
+       const price = extraToPriceMap[e];
+       return `${e} (+${price}€)`;
+     }).join(', ') : 'Aucun extra disponible'}
+   → Le client peut ne rien choisir (extras = [])
+
+4. 📅 DATE ET HEURE : Le créneau exact parmi ceux disponibles
+   → Créneaux disponibles : voir la liste ci-dessus
+
+5. ✅ CONFIRMATION : Le client confirme explicitement qu'il est d'accord
 
 RÈGLES DE COLLECTE :
-- Pose UNE SEULE question à la fois, ne submerge pas le client
-- Après chaque réponse du client, analyse ce qu'il manque encore
+- Pose UNE SEULE question à la fois
+- Vérifie que chaque réponse correspond EXACTEMENT aux options disponibles
+- Si le client demande quelque chose qui n'existe pas, propose des alternatives parmi les options disponibles
 - NE crée PAS de rendez-vous tant qu'il manque une information
-- Une fois TOUTES les infos collectées, présente un résumé clair :
-  "Parfait ! Je récapitule votre rendez-vous :
-  📅 [Jour] [Date] à [Heure]
-  ⏱️ Durée : [X] minutes
-  ➕ Extras : [Liste ou "Aucun"]
-  💰 Prix total : [Prix]€
-  
-  Confirmez-vous ce rendez-vous ?"
+- Calcule automatiquement le prix total : prix_base + somme(prix_extras)
+- Présente un résumé clair avec le prix total calculé
+- Attends la confirmation explicite avant d'appeler create_appointment_summary
 
-- Attends la confirmation explicite du client (oui, ok, confirme, d'accord, etc.)
-- UNIQUEMENT après confirmation, utilise la fonction create_appointment_summary avec les données exactes
+SEMANTIC MATCHING :
+- Si le client dit "un massage" → comprends "${prestationEnum[0] || 'Massage'}" (si c'est l'option disponible)
+- Si le client dit "30 minutes" ou "une demi-heure" → comprends "30min"
+- Si le client dit "1 heure" ou "60 minutes" → comprends "1h"
+- Si le client mentionne un extra de manière approximative → match avec l'option disponible la plus proche
+
+EXEMPLE DE RÉSUMÉ :
+"Parfait ! Je récapitule votre rendez-vous :
+🎯 Prestation : [Prestation]
+⏱️ Durée : [Duration] ([Prix base]€)
+➕ Extras : [Liste] (+[Prix extras]€)
+📅 [Jour] [Date] à [Heure]
+💰 Prix total : [Total]€
+
+Confirmez-vous ce rendez-vous ?"
 
 EXEMPLE DE CONVERSATION :
 Client: "Je voudrais un rendez-vous demain"
-Assistant: "Avec plaisir ! Demain j'ai ces créneaux disponibles : 14h, 16h, 18h. Quelle heure vous conviendrait ?"
-Client: "14h c'est parfait"
-Assistant: "Très bien ! Pour la durée, préférez-vous 30 minutes (50€) ou 1 heure (80€) ?"
-Client: "1 heure"
-Assistant: "Parfait ! Souhaitez-vous ajouter des extras ? J'ai par exemple [liste extras avec prix]"
-Client: "Oui, [extra X]"
-Assistant: "Excellent ! Je récapitule : Demain [date] à 14h, 1 heure avec [extra X]. Prix total : 95€. Je confirme ?"
+Assistant: "Avec plaisir ! Quelle prestation vous intéresse ? J'ai : ${prestationEnum.join(', ')}"
+Client: "Un massage"
+Assistant: "Très bien ! Demain j'ai ces créneaux disponibles : 14h, 16h, 18h. Quelle heure vous conviendrait ?"
+Client: "14h"
+Assistant: "Parfait ! Quelle durée préférez-vous ? ${durationEnum.join(' ou ')}"
+Client: "1h"
+Assistant: "Excellent ! Souhaitez-vous ajouter des extras ? ${extraEnum.length > 0 ? 'J\'ai : ' + extraEnum.join(', ') : 'Je n\'ai pas d\'extras pour le moment'}"
+Client: "Non merci"
+Assistant: "Très bien ! Récapitulatif : ${prestationEnum[0] || 'Prestation'}, 1h (${durationToPriceMap['1h'] || '?'}€), demain à 14h. Prix total : ${durationToPriceMap['1h'] || '?'}€. Je confirme ?"
 Client: "Oui"
-[Utilise create_appointment_summary avec toutes les données]
+[Utilise create_appointment_summary avec : prestation="${prestationEnum[0]}", duration="1h", selected_extras=[], date=demain, time="14:00"]
 
 CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comprendre le contexte.`;
 
@@ -539,11 +612,65 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
         
         try {
           const appointmentData = JSON.parse(toolCall.function.arguments);
-          console.log('[ai-auto-reply] Appointment data:', appointmentData);
+          console.log('[ai-auto-reply] Appointment data from AI:', appointmentData);
+
+          // Security check: Validate all enum values to prevent hallucinations
+          const validPrestation = prestationEnum.includes(appointmentData.prestation);
+          const validDuration = durationEnum.includes(appointmentData.duration);
+          const validExtras = appointmentData.selected_extras.every((e: string) => extraEnum.includes(e));
+
+          if (!validPrestation || !validDuration || !validExtras) {
+            console.error('[ai-auto-reply] Invalid enum values detected!', {
+              prestation: appointmentData.prestation,
+              valid: validPrestation,
+              duration: appointmentData.duration,
+              validDuration: validDuration,
+              extras: appointmentData.selected_extras,
+              validExtras: validExtras
+            });
+            
+            throw new Error('Invalid prestation, duration, or extras selected');
+          }
+
+          // Calculate prices from backend data (not from AI)
+          const baseDuration = appointmentData.duration; // e.g., "30min" or "1h"
+          const basePrice = durationToPriceMap[baseDuration];
+          
+          if (!basePrice) {
+            throw new Error(`Invalid duration: ${baseDuration}`);
+          }
+
+          // Calculate extras total
+          const extrasTotal = appointmentData.selected_extras.reduce((sum: number, extraName: string) => {
+            const extraPrice = extraToPriceMap[extraName];
+            if (!extraPrice) {
+              console.warn(`[ai-auto-reply] Unknown extra: ${extraName}`);
+              return sum;
+            }
+            return sum + extraPrice;
+          }, 0);
+
+          const totalPrice = basePrice + extrasTotal;
+
+          console.log('[ai-auto-reply] Price calculation:', {
+            baseDuration,
+            basePrice,
+            extrasTotal,
+            totalPrice
+          });
+
+          // Convert duration string to minutes
+          let durationMinutes: number;
+          if (baseDuration.includes('h')) {
+            const hours = parseFloat(baseDuration.replace('h', ''));
+            durationMinutes = hours * 60;
+          } else {
+            durationMinutes = parseInt(baseDuration.replace('min', ''));
+          }
 
           // Calculate end_time from start_time + duration
           const [hours, minutes] = appointmentData.appointment_time.split(':').map(Number);
-          const totalMinutes = hours * 60 + minutes + appointmentData.duration_minutes;
+          const totalMinutes = hours * 60 + minutes + durationMinutes;
           const endHours = Math.floor(totalMinutes / 60) % 24;
           const endMinutes = totalMinutes % 60;
           const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
@@ -559,8 +686,8 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
               appointment_date: appointmentData.appointment_date,
               start_time: appointmentData.appointment_time,
               end_time: endTime,
-              duration_minutes: appointmentData.duration_minutes,
-              service: prestations, // Main service
+              duration_minutes: durationMinutes,
+              service: appointmentData.prestation, // Store the exact prestation name
               notes: appointmentData.selected_extras.length > 0 
                 ? `Extras: ${appointmentData.selected_extras.join(', ')}`
                 : null,
@@ -592,21 +719,24 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
 
           console.log('[ai-auto-reply] Appointment created successfully:', newAppointment.id);
 
-          // Format confirmation message
+          // Format confirmation message with backend-calculated prices
           const dateObj = new Date(appointmentData.appointment_date);
           const dayName = DAYS[dateObj.getDay()];
           const dateFormatted = `${dayName} ${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear()}`;
           
           const extrasText = appointmentData.selected_extras.length > 0
-            ? `\n➕ Extras : ${appointmentData.selected_extras.join(', ')}`
+            ? `\n➕ Extras : ${appointmentData.selected_extras.map((e: string) => 
+                `${e} (+${extraToPriceMap[e]}€)`
+              ).join(', ')}`
             : '';
 
           const confirmationMessage = `✅ *Rendez-vous confirmé !*
 
+🎯 Prestation : ${appointmentData.prestation}
 📅 Date : ${dateFormatted}
-🕐 Heure : ${appointmentData.appointment_time}
-⏱️ Durée : ${appointmentData.duration_minutes} minutes${extrasText}
-💰 Prix total : ${appointmentData.total_price}€
+🕐 Heure : ${appointmentData.appointment_time} - ${endTime}
+⏱️ Durée : ${baseDuration} (${basePrice}€)${extrasText}
+💰 Prix total : ${totalPrice}€
 
 Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin de modifier ou annuler, n'hésitez pas à me contacter.`;
 
