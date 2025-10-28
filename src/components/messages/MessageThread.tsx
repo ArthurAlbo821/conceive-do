@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -23,12 +23,28 @@ export function MessageThread({
   contactName,
 }: MessageThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
+  // Reset initial load flag when conversation changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    setIsInitialLoad(true);
+  }, [contactPhone]);
+
+  // Intelligent scroll: only auto-scroll if user is near bottom or initial load
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    
+    const scrollElement = scrollRef.current;
+    const isNearBottom = 
+      scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 100;
+    
+    // Auto-scroll only if at bottom or initial load
+    if (isInitialLoad || isNearBottom) {
+      scrollElement.scrollTop = scrollElement.scrollHeight;
     }
-  }, [messages]);
+    
+    setIsInitialLoad(false);
+  }, [messages, isInitialLoad]);
 
   // Format phone number for display
   const formatPhoneNumber = (phone: string) => {
