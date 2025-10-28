@@ -4,8 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useEvolutionInstance } from "@/hooks/useEvolutionInstance";
 import { useConversations } from "@/hooks/useConversations";
 import { useMessages } from "@/hooks/useMessages";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { Navbar } from "@/components/Navbar";
 import { ConversationList } from "@/components/messages/ConversationList";
 import { MessageThread } from "@/components/messages/MessageThread";
 import { MessageInput } from "@/components/messages/MessageInput";
@@ -58,10 +59,7 @@ const Messages = () => {
       <div className="min-h-screen flex w-full">
         <AppSidebar />
         <div className="flex-1 flex flex-col">
-          <header className="h-14 border-b flex items-center px-4">
-            <SidebarTrigger />
-            <h1 className="text-xl font-semibold ml-4">Messages WhatsApp</h1>
-          </header>
+          <Navbar />
           <div className="flex-1 flex overflow-hidden">
             <div className="w-80">
               {loadingConv ? (
