@@ -38,7 +38,12 @@ Deno.serve(async (req) => {
 
     console.log(`[merge-conversations] Starting merge for user ${user.id}`);
 
-    // Find duplicate conversations (same instance_id and contact_phone)
+    // Normalize JID helper
+    const normalizeJid = (jid: string): string => {
+      return jid.split('@')[0];
+    };
+
+    // Find duplicate conversations (same instance_id and normalized contact_phone)
     const { data: conversations, error: fetchError } = await supabase
       .from('conversations')
       .select('*')
@@ -53,10 +58,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Group conversations by (instance_id, contact_phone)
+    // Group conversations by (instance_id, normalized_contact_phone)
     const groups = new Map<string, typeof conversations>();
     for (const conv of conversations) {
-      const key = `${conv.instance_id}:${conv.contact_phone}`;
+      const normalizedPhone = normalizeJid(conv.contact_phone);
+      const key = `${conv.instance_id}:${normalizedPhone}`;
       if (!groups.has(key)) {
         groups.set(key, []);
       }
@@ -73,11 +79,12 @@ Deno.serve(async (req) => {
 
       console.log(`[merge-conversations] Found ${convList.length} duplicates for ${key}`);
 
-      // Select primary conversation (most recent last_message_at)
-      const primary = convList[0]; // Already sorted by last_message_at desc
-      const secondaries = convList.slice(1);
+      // Select primary conversation: prefer normalized contact_phone, otherwise most recent
+      const normalizedKey = key.split(':')[1]; // Extract normalized phone from group key
+      const primary = convList.find(c => normalizeJid(c.contact_phone) === normalizedKey && c.contact_phone === normalizedKey) || convList[0];
+      const secondaries = convList.filter(c => c.id !== primary.id);
 
-      console.log(`[merge-conversations] Primary conversation: ${primary.id}`);
+      console.log(`[merge-conversations] Primary conversation: ${primary.id} (contact_phone: ${primary.contact_phone})`);
 
       // Move all messages from secondaries to primary
       for (const secondary of secondaries) {
@@ -123,6 +130,7 @@ Deno.serve(async (req) => {
       const { error: updatePrimaryError } = await supabase
         .from('conversations')
         .update({
+          contact_phone: normalizedKey,
           unread_count: totalUnread,
           last_message_at: mostRecentTimestamp,
           last_message_text: mostRecentText,
@@ -132,6 +140,8 @@ Deno.serve(async (req) => {
 
       if (updatePrimaryError) {
         console.error(`[merge-conversations] Error updating primary ${primary.id}:`, updatePrimaryError);
+      } else {
+        console.log(`[merge-conversations] Updated primary ${primary.id} with normalized contact_phone: ${normalizedKey}`);
       }
 
       // Delete secondary conversations

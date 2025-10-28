@@ -75,7 +75,74 @@ Deno.serve(async (req) => {
           .eq('id', conv.id);
 
         if (updateError) {
-          console.error(`[sanitize-jids] Error updating conversation ${conv.id}:`, updateError);
+          // Check if it's a duplicate key error
+          if (updateError.code === '23505') {
+            console.log(`[sanitize-jids] Duplicate key detected for ${normalizedPhone}, merging conversations...`);
+            
+            // Find the target conversation that already has this normalized phone
+            const { data: targetConv, error: targetError } = await supabase
+              .from('conversations')
+              .select('*')
+              .eq('instance_id', conv.instance_id)
+              .eq('contact_phone', normalizedPhone)
+              .single();
+
+            if (targetError || !targetConv) {
+              console.error(`[sanitize-jids] Error finding target conversation:`, targetError);
+              continue;
+            }
+
+            console.log(`[sanitize-jids] Target conversation: ${targetConv.id}, merging from ${conv.id}`);
+
+            // Move messages from current conversation to target
+            const { data: msgs, error: msgFetchError } = await supabase
+              .from('messages')
+              .select('id')
+              .eq('conversation_id', conv.id);
+
+            if (!msgFetchError && msgs && msgs.length > 0) {
+              await supabase
+                .from('messages')
+                .update({ conversation_id: targetConv.id })
+                .eq('conversation_id', conv.id);
+
+              console.log(`[sanitize-jids] Moved ${msgs.length} messages from ${conv.id} to ${targetConv.id}`);
+            }
+
+            // Aggregate metadata
+            const aggregatedUnread = (targetConv.unread_count || 0) + (conv.unread_count || 0);
+            let finalLastMessageAt = targetConv.last_message_at;
+            let finalLastMessageText = targetConv.last_message_text;
+            
+            if (conv.last_message_at && (!targetConv.last_message_at || conv.last_message_at > targetConv.last_message_at)) {
+              finalLastMessageAt = conv.last_message_at;
+              finalLastMessageText = conv.last_message_text;
+            }
+
+            const finalContactName = targetConv.contact_name || conv.contact_name;
+
+            // Update target with aggregated data
+            await supabase
+              .from('conversations')
+              .update({
+                unread_count: aggregatedUnread,
+                last_message_at: finalLastMessageAt,
+                last_message_text: finalLastMessageText,
+                contact_name: finalContactName,
+              })
+              .eq('id', targetConv.id);
+
+            // Delete current conversation
+            await supabase
+              .from('conversations')
+              .delete()
+              .eq('id', conv.id);
+
+            console.log(`[sanitize-jids] Deleted duplicate conversation ${conv.id}`);
+            updatedConvCount++;
+          } else {
+            console.error(`[sanitize-jids] Error updating conversation ${conv.id}:`, updateError);
+          }
         } else {
           updatedConvCount++;
         }

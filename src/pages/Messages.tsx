@@ -20,7 +20,15 @@ const Messages = () => {
   const { instance } = useEvolutionInstance();
   const { conversations, loading: loadingConv } = useConversations(instance?.id);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  const { messages, sendMessage } = useMessages(selectedConversationId);
+  
+  // Find selected conversation to pass contact info to useMessages
+  const selectedConversation = conversations.find(c => c.id === selectedConversationId);
+  
+  const { messages, sendMessage } = useMessages(
+    selectedConversationId, 
+    instance?.id || null,
+    selectedConversation?.contact_phone || null
+  );
   const [merging, setMerging] = useState(false);
 
   useEffect(() => {
@@ -92,10 +100,6 @@ const Messages = () => {
       </SidebarProvider>
     );
   }
-
-  const selectedConversation = conversations.find(
-    (c) => c.id === selectedConversationId
-  );
 
   return (
     <SidebarProvider>

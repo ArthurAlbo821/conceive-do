@@ -198,13 +198,13 @@ Deno.serve(async (req) => {
         timestamp: messageTimestamp
       });
 
-      // Search for existing conversation using both raw and normalized keys
+      // Search for existing conversations using both raw and normalized keys
       const { data: existingConvs, error: searchError } = await supabase
         .from('conversations')
         .select('*')
         .eq('instance_id', instance.id)
         .in('contact_phone', [rawJid, normalizedKey])
-        .order('last_message_at', { ascending: false });
+        .order('last_message_at', { ascending: false, nullsFirst: false });
 
       if (searchError) {
         console.error('[webhook] Error searching conversations:', searchError);
@@ -212,16 +212,75 @@ Deno.serve(async (req) => {
 
       let conversationId: string;
       
-      if (existingConvs && existingConvs.length > 0) {
-        // Use the most recent conversation
+      if (existingConvs && existingConvs.length > 1) {
+        // Multiple conversations exist - merge them immediately
+        console.log(`[webhook] Found ${existingConvs.length} conversations for contact, merging now...`);
+
+        // Primary: prefer normalized, otherwise most recent
+        const primary = existingConvs.find(c => c.contact_phone === normalizedKey) || existingConvs[0];
+        const secondaries = existingConvs.filter(c => c.id !== primary.id);
+
+        console.log(`[webhook] Primary conversation: ${primary.id}, merging ${secondaries.length} secondaries`);
+
+        // Move all messages from secondaries to primary
+        for (const secondary of secondaries) {
+          const { data: msgs, error: msgFetchError } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('conversation_id', secondary.id);
+
+          if (!msgFetchError && msgs && msgs.length > 0) {
+            await supabase
+              .from('messages')
+              .update({ conversation_id: primary.id })
+              .eq('conversation_id', secondary.id);
+
+            console.log(`[webhook] Moved ${msgs.length} messages from ${secondary.id} to ${primary.id}`);
+          }
+
+          // Aggregate metadata
+          primary.unread_count = (primary.unread_count || 0) + (secondary.unread_count || 0);
+          if (secondary.last_message_at && (!primary.last_message_at || secondary.last_message_at > primary.last_message_at)) {
+            primary.last_message_at = secondary.last_message_at;
+            primary.last_message_text = secondary.last_message_text;
+          }
+          if (!primary.contact_name && secondary.contact_name) {
+            primary.contact_name = secondary.contact_name;
+          }
+
+          // Delete secondary
+          await supabase
+            .from('conversations')
+            .delete()
+            .eq('id', secondary.id);
+
+          console.log(`[webhook] Deleted secondary conversation ${secondary.id}`);
+        }
+
+        // Update primary with aggregated data and ensure normalized contact_phone
+        await supabase
+          .from('conversations')
+          .update({
+            contact_phone: normalizedKey,
+            unread_count: primary.unread_count,
+            last_message_at: primary.last_message_at,
+            last_message_text: primary.last_message_text,
+            contact_name: primary.contact_name || pushName || normalizedKey,
+          })
+          .eq('id', primary.id);
+
+        conversationId = primary.id;
+        console.log(`[webhook] Using merged primary conversation ${conversationId}`);
+      } else if (existingConvs && existingConvs.length === 1) {
+        // Single conversation exists
         const existingConv = existingConvs[0];
         conversationId = existingConv.id;
         
         console.log('[webhook] Using existing conversation:', conversationId, 'with contact_phone:', existingConv.contact_phone);
         
-        // Migrate to normalized key if needed
+        // Ensure normalized contact_phone
         if (existingConv.contact_phone !== normalizedKey) {
-          console.log('[webhook] Migrating contact_phone from', existingConv.contact_phone, 'to', normalizedKey);
+          console.log('[webhook] Updating contact_phone from', existingConv.contact_phone, 'to', normalizedKey);
           await supabase
             .from('conversations')
             .update({ contact_phone: normalizedKey })
