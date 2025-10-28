@@ -66,7 +66,8 @@ Deno.serve(async (req) => {
     }
 
     // Envoyer via Evolution API
-    const evolutionUrl = `https://evolution.synapsetechhub.com/message/sendText/${instance.instance_name}`;
+    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
+    const evolutionUrl = `${baseUrl}/message/sendText/${instance.instance_name}`;
     console.log(`[send-message] Sending to ${conversation.contact_phone}`);
 
     const evolutionResponse = await fetch(evolutionUrl, {
