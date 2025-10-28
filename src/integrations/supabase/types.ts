@@ -192,6 +192,42 @@ export type Database = {
         }
         Relationships: []
       }
+      user_informations: {
+        Row: {
+          adresse: string | null
+          created_at: string
+          extras: Json | null
+          id: string
+          prestations: Json | null
+          taboos: Json | null
+          tarifs: Json | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          adresse?: string | null
+          created_at?: string
+          extras?: Json | null
+          id?: string
+          prestations?: Json | null
+          taboos?: Json | null
+          tarifs?: Json | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          adresse?: string | null
+          created_at?: string
+          extras?: Json | null
+          id?: string
+          prestations?: Json | null
+          taboos?: Json | null
+          tarifs?: Json | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
