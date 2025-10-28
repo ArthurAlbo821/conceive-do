@@ -152,7 +152,8 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
       {
         body: {
           conversation_id,
-          message: aiResponse
+          message: aiResponse,
+          user_id
         }
       }
     );

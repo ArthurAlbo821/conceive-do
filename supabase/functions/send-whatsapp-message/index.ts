@@ -16,19 +16,30 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Authentification
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization');
-    }
+    // Récupérer le user_id depuis le body ou depuis le token
+    const bodyData = await req.json();
+    const { conversation_id, message, user_id: providedUserId } = bodyData;
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      throw new Error('Unauthorized');
-    }
+    let userId: string;
 
-    const { conversation_id, message } = await req.json();
+    if (providedUserId) {
+      // Appel interne depuis une autre edge function
+      userId = providedUserId;
+      console.log('[send-message] Internal call with user_id:', userId);
+    } else {
+      // Appel depuis le frontend - vérifier le token
+      const authHeader = req.headers.get('Authorization');
+      if (!authHeader) {
+        throw new Error('Missing authorization');
+      }
+      
+      const token = authHeader.replace('Bearer ', '');
+      const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+      if (authError || !user) {
+        throw new Error('Unauthorized');
+      }
+      userId = user.id;
+    }
 
     if (!conversation_id || !message) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
@@ -45,7 +56,7 @@ Deno.serve(async (req) => {
         instance:evolution_instances(*)
       `)
       .eq('id', conversation_id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .single();
 
     if (convError || !conversation) {
