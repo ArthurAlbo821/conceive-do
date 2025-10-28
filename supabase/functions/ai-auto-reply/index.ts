@@ -124,36 +124,87 @@ Deno.serve(async (req) => {
         // Find availabilities for this day
         const dayAvails = availabilities.filter((a: any) => a.day_of_week === dayOfWeek);
 
-        if (dayAvails.length === 0) continue;
-
         // For each availability slot
         for (const avail of dayAvails) {
+          const startHour = parseInt(avail.start_time.split(':')[0]);
+          const startMinute = parseInt(avail.start_time.split(':')[1]);
+          const endHour = parseInt(avail.end_time.split(':')[0]);
+          const endMinute = parseInt(avail.end_time.split(':')[1]);
+          
+          // Check if slot crosses midnight
+          const crossesMidnight = avail.end_time <= avail.start_time;
+          
           // Check if there are any appointments that overlap
           const dayAppointments = appointments?.filter((apt: any) => 
             apt.appointment_date === dateStr
           ) || [];
 
-          const startHour = parseInt(avail.start_time.split(':')[0]);
-          const startMinute = parseInt(avail.start_time.split(':')[1]);
-          const endHour = parseInt(avail.end_time.split(':')[0]);
-          const endMinute = parseInt(avail.end_time.split(':')[1]);
+          if (crossesMidnight) {
+            // Handle slot that crosses midnight in two parts
+            // Part 1: From start_time to 23:59 on current day
+            for (let hour = startHour; hour < 24; hour++) {
+              const slotTime = `${hour.toString().padStart(2, '0')}:00`;
+              const slotEndTime = hour < 23 
+                ? `${(hour + 1).toString().padStart(2, '0')}:00`
+                : '23:59';
 
-          // Generate hourly slots
-          for (let hour = startHour; hour < endHour; hour++) {
-            const slotTime = `${hour.toString().padStart(2, '0')}:00`;
-            const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
+              const isOccupied = dayAppointments.some((apt: any) => {
+                const aptStart = apt.start_time;
+                const aptEnd = apt.end_time;
+                return (slotTime >= aptStart && slotTime < aptEnd) || 
+                       (slotEndTime > aptStart && slotEndTime <= aptEnd);
+              });
 
-            // Check if slot is free
-            const isOccupied = dayAppointments.some((apt: any) => {
-              const aptStart = apt.start_time;
-              const aptEnd = apt.end_time;
-              return (slotTime >= aptStart && slotTime < aptEnd) || 
-                     (slotEndTime > aptStart && slotEndTime <= aptEnd);
-            });
+              if (!isOccupied) {
+                const dayName = DAYS[dayOfWeek];
+                slots.push(`${dayName} ${date.getDate()}/${date.getMonth() + 1} à ${slotTime}`);
+              }
+            }
+            
+            // Part 2: From 00:00 to end_time on next day
+            const nextDate = new Date(date);
+            nextDate.setDate(nextDate.getDate() + 1);
+            const nextDateStr = nextDate.toISOString().split('T')[0];
+            const nextDayOfWeek = nextDate.getDay();
+            
+            const nextDayAppointments = appointments?.filter((apt: any) => 
+              apt.appointment_date === nextDateStr
+            ) || [];
+            
+            for (let hour = 0; hour < endHour; hour++) {
+              const slotTime = `${hour.toString().padStart(2, '0')}:00`;
+              const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
 
-            if (!isOccupied) {
-              const dayName = DAYS[dayOfWeek];
-              slots.push(`${dayName} ${date.getDate()}/${date.getMonth() + 1} à ${slotTime}`);
+              const isOccupied = nextDayAppointments.some((apt: any) => {
+                const aptStart = apt.start_time;
+                const aptEnd = apt.end_time;
+                return (slotTime >= aptStart && slotTime < aptEnd) || 
+                       (slotEndTime > aptStart && slotEndTime <= aptEnd);
+              });
+
+              if (!isOccupied) {
+                const dayName = DAYS[nextDayOfWeek];
+                slots.push(`${dayName} ${nextDate.getDate()}/${nextDate.getMonth() + 1} à ${slotTime}`);
+              }
+            }
+          } else {
+            // Standard slot within same day
+            for (let hour = startHour; hour < endHour; hour++) {
+              const slotTime = `${hour.toString().padStart(2, '0')}:00`;
+              const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
+
+              // Check if slot is free
+              const isOccupied = dayAppointments.some((apt: any) => {
+                const aptStart = apt.start_time;
+                const aptEnd = apt.end_time;
+                return (slotTime >= aptStart && slotTime < aptEnd) || 
+                       (slotEndTime > aptStart && slotEndTime <= aptEnd);
+              });
+
+              if (!isOccupied) {
+                const dayName = DAYS[dayOfWeek];
+                slots.push(`${dayName} ${date.getDate()}/${date.getMonth() + 1} à ${slotTime}`);
+              }
             }
           }
         }

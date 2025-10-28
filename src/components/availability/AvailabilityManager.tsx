@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Clock } from "lucide-react";
 import { useAvailabilities } from "@/hooks/useAvailabilities";
 
 const DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
@@ -18,11 +18,37 @@ export const AvailabilityManager = () => {
   const handleAdd = () => {
     if (!startTime || !endTime) return;
     
+    // Check if slot crosses midnight
+    const crossesMidnight = endTime <= startTime;
+    
     // Validation: check for overlaps on the same day
     const dayAvails = groupedByDay[selectedDay] || [];
     const hasOverlap = dayAvails.some((avail) => {
       const existingStart = avail.start_time;
       const existingEnd = avail.end_time;
+      const existingCrossesMidnight = existingEnd <= existingStart;
+      
+      // If both slots cross midnight, check overlap more carefully
+      if (crossesMidnight && existingCrossesMidnight) {
+        // Both slots cross midnight - they overlap if either time overlaps
+        return true; // Simplified: prevent multiple midnight-crossing slots for now
+      }
+      
+      // If only one crosses midnight, more complex logic needed
+      if (crossesMidnight) {
+        // New slot crosses midnight: check if it overlaps with existing slot
+        // New slot is [start -> 23:59] + [00:00 -> end]
+        return (startTime <= existingEnd && existingEnd <= "23:59") ||
+               (existingStart <= endTime);
+      }
+      
+      if (existingCrossesMidnight) {
+        // Existing slot crosses midnight
+        return (existingStart <= endTime) ||
+               (startTime <= existingEnd);
+      }
+      
+      // Standard overlap check for slots within same day
       return (
         (startTime >= existingStart && startTime < existingEnd) ||
         (endTime > existingStart && endTime <= existingEnd) ||
@@ -105,8 +131,8 @@ export const AvailabilityManager = () => {
 
         <div className="bg-muted/50 p-3 rounded-lg">
           <p className="text-sm text-muted-foreground">
-            💡 <strong>Astuce :</strong> Vous pouvez ajouter plusieurs créneaux horaires pour le même jour 
-            (ex: Lundi 00h-02h et Lundi 12h-00h). Sélectionnez simplement à nouveau le jour et ajoutez un nouveau créneau.
+            💡 <strong>Astuce :</strong> Vous pouvez ajouter plusieurs créneaux horaires pour le même jour.
+            Les créneaux traversant minuit sont supportés (ex: Lundi 22h-02h passera au Mardi à minuit).
           </p>
         </div>
 
@@ -119,36 +145,47 @@ export const AvailabilityManager = () => {
               <div key={dayIndex} className="space-y-2">
                 <h4 className="font-medium text-sm">{day}</h4>
                 <div className="space-y-2">
-                  {dayAvails.map((avail) => (
-                    <div
-                      key={avail.id}
-                      className="flex items-center justify-between p-3 rounded-lg border bg-card"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="text-sm">
-                          {avail.start_time} - {avail.end_time}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <Switch
-                            checked={avail.is_active}
-                            onCheckedChange={(checked) =>
-                              updateAvailability({ id: avail.id, is_active: checked })
-                            }
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            {avail.is_active ? "Actif" : "Inactif"}
-                          </span>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => deleteAvailability(avail.id)}
+                  {dayAvails.map((avail) => {
+                    const crossesMidnight = avail.end_time <= avail.start_time;
+                    const nextDay = (dayIndex + 1) % 7;
+                    
+                    return (
+                      <div
+                        key={avail.id}
+                        className="flex items-center justify-between p-3 rounded-lg border bg-card"
                       >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  ))}
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm flex items-center gap-2">
+                            <Clock className="h-3 w-3" />
+                            {avail.start_time.substring(0, 5)} - {avail.end_time.substring(0, 5)}
+                            {crossesMidnight && (
+                              <span className="text-xs text-muted-foreground">
+                                (→ {DAYS[nextDay]})
+                              </span>
+                            )}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={avail.is_active}
+                              onCheckedChange={(checked) =>
+                                updateAvailability({ id: avail.id, is_active: checked })
+                              }
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {avail.is_active ? "Actif" : "Inactif"}
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteAvailability(avail.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
