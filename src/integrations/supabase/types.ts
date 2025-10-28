@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_logs: {
+        Row: {
+          attempted_value: string | null
+          conversation_id: string | null
+          created_at: string
+          event_type: string
+          id: string
+          message: string | null
+          user_id: string
+          valid_options: Json | null
+        }
+        Insert: {
+          attempted_value?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          event_type: string
+          id?: string
+          message?: string | null
+          user_id: string
+          valid_options?: Json | null
+        }
+        Update: {
+          attempted_value?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          event_type?: string
+          id?: string
+          message?: string | null
+          user_id?: string
+          valid_options?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_logs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       appointments: {
         Row: {
           appointment_date: string

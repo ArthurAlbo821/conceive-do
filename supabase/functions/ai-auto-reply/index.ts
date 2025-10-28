@@ -769,7 +769,7 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
                 // Confiance trop faible, lister toutes les options
                 console.log('[ai-auto-reply] Low confidence, listing all options');
                 
-                const allPrestations = prestationEnum.map((p, i) => `${i + 1}. ${p}`).join('\n');
+                const allPrestations = prestationEnum.map((p: string, i: number) => `${i + 1}. ${p}`).join('\n');
                 const fallbackMessage = `Je ne suis pas sûr de comprendre quelle prestation vous souhaitez. Voici ce que je propose :\n\n${allPrestations}\n\nQuelle prestation vous intéresse ?`;
                 
                 await supabase.functions.invoke('send-whatsapp-message', {
