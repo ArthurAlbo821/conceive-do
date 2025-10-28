@@ -105,6 +105,27 @@ Deno.serve(async (req) => {
         ).join('\n- ')
       : 'Aucune disponibilité configurée';
 
+    // Get current date and time context
+    const now = new Date();
+    const currentDateTime = {
+      fullDate: now.toLocaleDateString('fr-FR', { 
+        weekday: 'long', 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      }),
+      time: now.toLocaleTimeString('fr-FR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+      }),
+      dayOfWeek: DAYS[now.getDay()],
+      date: now.getDate(),
+      month: now.getMonth() + 1,
+      year: now.getFullYear(),
+      hour: now.getHours(),
+      minute: now.getMinutes()
+    };
+
     // Compute available slots
     const computeAvailableSlots = () => {
       if (!availabilities || availabilities.length === 0) {
@@ -193,6 +214,15 @@ Deno.serve(async (req) => {
               const slotTime = `${hour.toString().padStart(2, '0')}:00`;
               const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
 
+              // Skip past slots for today
+              if (i === 0) {
+                const slotDateTime = new Date(date);
+                slotDateTime.setHours(hour, 0, 0, 0);
+                if (slotDateTime < now) {
+                  continue;
+                }
+              }
+
               // Check if slot is free
               const isOccupied = dayAppointments.some((apt: any) => {
                 const aptStart = apt.start_time;
@@ -220,6 +250,13 @@ Deno.serve(async (req) => {
     // Build system prompt
     const systemPrompt = `Tu es un assistant virtuel professionnel qui aide à gérer les demandes de rendez-vous et à fournir des informations.
 
+DATE ET HEURE ACTUELLES :
+- Nous sommes le : ${currentDateTime.fullDate}
+- Il est actuellement : ${currentDateTime.time}
+- Jour de la semaine : ${currentDateTime.dayOfWeek}
+- Date complète : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}
+- Heure : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
+
 INFORMATIONS DU PROFESSIONNEL :
 - Prestations disponibles : ${prestations}
 - Extras disponibles : ${extras}
@@ -245,6 +282,14 @@ INSTRUCTIONS :
 9. Réponds en français, adapte ton ton au contexte (formel ou amical selon le client)
 10. Sois concis : évite de répéter des informations déjà mentionnées dans la conversation
 11. Si tu ne sais pas répondre à une question, dis-le simplement
+12. GESTION DU TEMPS : Utilise la date et l'heure actuelles pour répondre aux questions temporelles
+    - "dans 30 min" = calcule à partir de l'heure actuelle
+    - "cet après-midi" = aujourd'hui entre 14h et 18h
+    - "ce soir" = aujourd'hui après 18h
+    - "demain matin" = jour suivant avant 12h
+    - "demain après-midi" = jour suivant entre 14h et 18h
+13. Pour les demandes urgentes (dans moins d'une heure), vérifie si c'est réaliste avec les disponibilités
+14. Si un créneau demandé est déjà passé (dans le passé), propose poliment les prochains créneaux disponibles
 
 CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comprendre le contexte.`;
 
