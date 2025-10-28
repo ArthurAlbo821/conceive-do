@@ -41,20 +41,22 @@ export function useMessages(
       .eq("id", conversationId)
       .then();
 
-    // Normalize JID helper
-    const normalizeJid = (jid: string): string => {
-      return jid.split('@')[0];
+    // Strict phone number normalization - remove @ suffix and all non-numeric characters
+    const normalizePhone = (phone: string): string => {
+      if (!phone) return '';
+      return phone.split('@')[0].replace(/\D/g, '');
     };
 
-    // Realtime subscription - listen to ALL message inserts for this instance
+    // Realtime subscription - listen to message inserts for this instance
     const channel = supabase
-      .channel(`messages_realtime`)
+      .channel(`messages_realtime_${instanceId || 'all'}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
+          filter: instanceId ? `instance_id=eq.${instanceId}` : undefined,
         },
         (payload) => {
           const newMessage = payload.new as any;
@@ -63,10 +65,10 @@ export function useMessages(
           if (newMessage.conversation_id === conversationId) {
             setMessages((prev) => [...prev, newMessage]);
           } else if (instanceId && contactPhone) {
-            // Check if this message belongs to the same contact (by normalized phone)
-            const normalizedContactPhone = normalizeJid(contactPhone);
-            const normalizedSender = normalizeJid(newMessage.sender_phone);
-            const normalizedReceiver = normalizeJid(newMessage.receiver_phone);
+            // Check if this message belongs to the same contact (by strictly normalized phone)
+            const normalizedContactPhone = normalizePhone(contactPhone);
+            const normalizedSender = normalizePhone(newMessage.sender_phone);
+            const normalizedReceiver = normalizePhone(newMessage.receiver_phone);
             
             // If sender or receiver matches the current contact's normalized phone
             if (normalizedSender === normalizedContactPhone || normalizedReceiver === normalizedContactPhone) {

@@ -5,11 +5,11 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Normalize WhatsApp JID to clean phone number
+// Normalize WhatsApp JID to clean phone number - strict numeric only
 function normalizeJid(jid: string): string {
   if (!jid) return '';
-  // Remove known suffixes: @s.whatsapp.net, @lid, @g.us, etc.
-  return jid.split('@')[0];
+  // Remove known suffixes and all non-numeric characters
+  return jid.split('@')[0].replace(/\D/g, '');
 }
 
 Deno.serve(async (req) => {
