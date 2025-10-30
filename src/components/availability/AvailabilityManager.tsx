@@ -10,44 +10,43 @@ import { useAvailabilities } from "@/hooks/useAvailabilities";
 const DAYS = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
 
 export const AvailabilityManager = () => {
-  const { availabilities, isLoading, addAvailability, updateAvailability, deleteAvailability } = useAvailabilities();
+  const { availabilities, isLoading, addAvailability, updateAvailability, deleteAvailability } =
+    useAvailabilities();
   const [selectedDay, setSelectedDay] = useState<number>(1);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("18:00");
 
   const handleAdd = () => {
     if (!startTime || !endTime) return;
-    
+
     // Check if slot crosses midnight
     const crossesMidnight = endTime <= startTime;
-    
+
     // Validation: check for overlaps on the same day
     const dayAvails = groupedByDay[selectedDay] || [];
     const hasOverlap = dayAvails.some((avail) => {
       const existingStart = avail.start_time;
       const existingEnd = avail.end_time;
       const existingCrossesMidnight = existingEnd <= existingStart;
-      
+
       // If both slots cross midnight, check overlap more carefully
       if (crossesMidnight && existingCrossesMidnight) {
         // Both slots cross midnight - they overlap if either time overlaps
         return true; // Simplified: prevent multiple midnight-crossing slots for now
       }
-      
+
       // If only one crosses midnight, more complex logic needed
       if (crossesMidnight) {
         // New slot crosses midnight: check if it overlaps with existing slot
         // New slot is [start -> 23:59] + [00:00 -> end]
-        return (startTime <= existingEnd && existingEnd <= "23:59") ||
-               (existingStart <= endTime);
+        return (startTime <= existingEnd && existingEnd <= "23:59") || existingStart <= endTime;
       }
-      
+
       if (existingCrossesMidnight) {
         // Existing slot crosses midnight
-        return (existingStart <= endTime) ||
-               (startTime <= existingEnd);
+        return existingStart <= endTime || startTime <= existingEnd;
       }
-      
+
       // Standard overlap check for slots within same day
       return (
         (startTime >= existingStart && startTime < existingEnd) ||
@@ -70,11 +69,14 @@ export const AvailabilityManager = () => {
     setEndTime("18:00");
   };
 
-  const groupedByDay = availabilities.reduce((acc, avail) => {
-    if (!acc[avail.day_of_week]) acc[avail.day_of_week] = [];
-    acc[avail.day_of_week].push(avail);
-    return acc;
-  }, {} as Record<number, typeof availabilities>);
+  const groupedByDay = availabilities.reduce(
+    (acc, avail) => {
+      if (!acc[avail.day_of_week]) acc[avail.day_of_week] = [];
+      acc[avail.day_of_week].push(avail);
+      return acc;
+    },
+    {} as Record<number, typeof availabilities>
+  );
 
   if (isLoading) {
     return <div className="text-muted-foreground">Chargement des disponibilités...</div>;
@@ -85,8 +87,8 @@ export const AvailabilityManager = () => {
       <CardHeader>
         <CardTitle>Disponibilités hebdomadaires</CardTitle>
         <CardDescription>
-          Définissez vos horaires de disponibilité pour chaque jour de la semaine. 
-          Vous pouvez ajouter plusieurs créneaux horaires pour un même jour.
+          Définissez vos horaires de disponibilité pour chaque jour de la semaine. Vous pouvez
+          ajouter plusieurs créneaux horaires pour un même jour.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -107,19 +109,11 @@ export const AvailabilityManager = () => {
           </div>
           <div className="space-y-2">
             <Label>Heure de début</Label>
-            <Input
-              type="time"
-              value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-            />
+            <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Heure de fin</Label>
-            <Input
-              type="time"
-              value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-            />
+            <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
           </div>
           <div className="flex items-end">
             <Button onClick={handleAdd} className="w-full">
@@ -131,8 +125,9 @@ export const AvailabilityManager = () => {
 
         <div className="bg-muted/50 p-3 rounded-lg">
           <p className="text-sm text-muted-foreground">
-            💡 <strong>Astuce :</strong> Vous pouvez ajouter plusieurs créneaux horaires pour le même jour.
-            Les créneaux traversant minuit sont supportés (ex: Lundi 22h-02h passera au Mardi à minuit).
+            💡 <strong>Astuce :</strong> Vous pouvez ajouter plusieurs créneaux horaires pour le
+            même jour. Les créneaux traversant minuit sont supportés (ex: Lundi 22h-02h passera au
+            Mardi à minuit).
           </p>
         </div>
 
@@ -148,7 +143,7 @@ export const AvailabilityManager = () => {
                   {dayAvails.map((avail) => {
                     const crossesMidnight = avail.end_time <= avail.start_time;
                     const nextDay = (dayIndex + 1) % 7;
-                    
+
                     return (
                       <div
                         key={avail.id}

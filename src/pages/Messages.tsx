@@ -20,12 +20,12 @@ const Messages = () => {
   const { instance } = useEvolutionInstance();
   const { conversations, loading: loadingConv } = useConversations(instance?.id);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
-  
+
   // Find selected conversation to pass contact info to useMessages
-  const selectedConversation = conversations.find(c => c.id === selectedConversationId);
-  
+  const selectedConversation = conversations.find((c) => c.id === selectedConversationId);
+
   const { messages, sendMessage } = useMessages(
-    selectedConversationId, 
+    selectedConversationId,
     instance?.id || null,
     selectedConversation?.contact_phone || null,
     (newId) => setSelectedConversationId(newId)
@@ -34,7 +34,9 @@ const Messages = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
         navigate("/auth");
       }
@@ -51,24 +53,24 @@ const Messages = () => {
 
   const handleToggleAI = async (enabled: boolean) => {
     if (!selectedConversationId) return;
-    
+
     const { error } = await supabase
-      .from('conversations')
+      .from("conversations")
       .update({ ai_enabled: enabled })
-      .eq('id', selectedConversationId);
-      
+      .eq("id", selectedConversationId);
+
     if (error) {
       toast({
         title: "Erreur",
         description: "Impossible de modifier le paramètre IA",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
-    
+
     toast({
       title: enabled ? "IA activée" : "IA désactivée",
-      description: enabled 
+      description: enabled
         ? "L'IA répondra automatiquement à ce contact"
         : "L'IA ne répondra plus à ce contact",
     });
@@ -78,25 +80,25 @@ const Messages = () => {
     setMerging(true);
     try {
       // First sanitize JIDs to normalize @lid entries
-      const { error: sanitizeError } = await supabase.functions.invoke('sanitize-jids');
+      const { error: sanitizeError } = await supabase.functions.invoke("sanitize-jids");
       if (sanitizeError) {
-        console.error('Error sanitizing JIDs:', sanitizeError);
+        console.error("Error sanitizing JIDs:", sanitizeError);
       }
-      
+
       // Then merge duplicate conversations
-      const { data, error } = await supabase.functions.invoke('merge-conversations');
-      
+      const { data, error } = await supabase.functions.invoke("merge-conversations");
+
       if (error) throw error;
-      
+
       toast({
         title: "Conversations fusionnées",
         description: `${data.merged_groups} groupes fusionnés, ${data.moved_messages} messages déplacés`,
       });
-      
+
       // Refetch conversations
       window.location.reload();
     } catch (error) {
-      console.error('Error merging conversations:', error);
+      console.error("Error merging conversations:", error);
       toast({
         title: "Erreur",
         description: "Impossible de fusionner les conversations",
@@ -117,9 +119,7 @@ const Messages = () => {
               <p className="text-muted-foreground mb-4">
                 Vous devez d'abord connecter votre WhatsApp
               </p>
-              <Button onClick={() => navigate("/dashboard")}>
-                Aller à la connexion WhatsApp
-              </Button>
+              <Button onClick={() => navigate("/dashboard")}>Aller à la connexion WhatsApp</Button>
             </div>
           </div>
         </div>
@@ -184,9 +184,7 @@ const Messages = () => {
                     />
                   </div>
                   <div className="flex-shrink-0 border-t">
-                    <MessageInput
-                      onSend={(msg) => sendMessage(selectedConversationId!, msg)}
-                    />
+                    <MessageInput onSend={(msg) => sendMessage(selectedConversationId!, msg)} />
                   </div>
                 </>
               ) : (

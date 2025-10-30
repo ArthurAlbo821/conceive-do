@@ -1,0 +1,164 @@
+/**
+ * SECURED VERSION of evolution-webhook-handler
+ *
+ * This is an EXAMPLE showing how to add security to the webhook.
+ * To activate:
+ * 1. Backup current index.ts
+ * 2. Copy this file over index.ts
+ * 3. Set WEBHOOK_SECRET in Supabase Edge Function secrets
+ * 4. Deploy and test
+ */
+
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.76.1";
+import {
+  verifyHmacSignature,
+  checkRateLimit,
+  sanitizeError,
+  validateWebhookPayload,
+} from "../_shared/webhook-security.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-webhook-signature",
+};
+
+// [COPY ALL YOUR normalizeJid, resolveLidToRealNumber functions here]
+// ... (lines 9-163 from original index.ts)
+
+Deno.serve(async (req) => {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  const isProduction = Deno.env.get("DENO_ENV") === "production";
+
+  try {
+    // ═══════════════════════════════════════════════════
+    // SECURITY LAYER - NEW CODE
+    // ═══════════════════════════════════════════════════
+
+    // 1. RATE LIMITING
+    const clientId =
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("cf-connecting-ip") ||
+      "unknown";
+    const rateLimit = checkRateLimit(clientId, 100, 60000); // 100 req/min
+
+    if (!rateLimit.allowed) {
+      console.warn(`[webhook-security] ⚠️  Rate limit exceeded for ${clientId}`);
+      return new Response(JSON.stringify({ error: "Rate limit exceeded" }), {
+        status: 429,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+          "X-RateLimit-Remaining": String(rateLimit.remaining),
+          "X-RateLimit-Reset": new Date(rateLimit.resetAt).toISOString(),
+          "Retry-After": String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+        },
+      });
+    }
+
+    // 2. READ AND PARSE PAYLOAD
+    const body = await req.text();
+    let payload;
+
+    try {
+      payload = JSON.parse(body);
+    } catch (parseError) {
+      console.error("[webhook-security] ❌ Invalid JSON:", parseError);
+      return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 3. VALIDATE PAYLOAD STRUCTURE
+    const validationError = validateWebhookPayload(payload);
+    if (validationError) {
+      console.error("[webhook-security] ❌ Invalid payload:", validationError);
+      return new Response(JSON.stringify({ error: validationError }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // 4. VERIFY HMAC SIGNATURE (if secret is configured)
+    const webhookSecret = Deno.env.get("WEBHOOK_SECRET");
+    const signature = req.headers.get("x-webhook-signature") || "";
+
+    if (webhookSecret) {
+      const isValid = await verifyHmacSignature(body, signature, webhookSecret);
+
+      if (!isValid) {
+        console.error("[webhook-security] ❌ Invalid signature from", clientId);
+        return new Response(JSON.stringify({ error: "Unauthorized - Invalid signature" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log("[webhook-security] ✅ Signature verified for", payload.instance);
+    } else {
+      console.warn(
+        "[webhook-security] ⚠️  WEBHOOK_SECRET not set - signature verification DISABLED"
+      );
+      console.warn("[webhook-security] ⚠️  This webhook is vulnerable to spoofing attacks!");
+    }
+
+    // ═══════════════════════════════════════════════════
+    // EXISTING WEBHOOK LOGIC - UNCHANGED
+    // ═══════════════════════════════════════════════════
+
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    console.log(
+      "[evolution-webhook-handler] Received event:",
+      JSON.stringify(payload, null, 2)
+    );
+
+    const event = payload.event;
+    const instanceName = payload.instance;
+
+    if (!instanceName) {
+      console.error("[evolution-webhook-handler] Missing instance name");
+      return new Response(JSON.stringify({ success: false }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Find the instance in database
+    const { data: instance, error: findError } = await supabase
+      .from("evolution_instances")
+      .select("*")
+      .eq("instance_name", instanceName)
+      .single();
+
+    if (findError || !instance) {
+      console.error("[evolution-webhook-handler] Instance not found:", instanceName);
+      return new Response(JSON.stringify({ success: false }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // [COPY REST OF YOUR WEBHOOK LOGIC HERE]
+    // ... (all the event handling code from the original file)
+
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (error) {
+    console.error("[webhook] ❌ Error:", error);
+    return new Response(JSON.stringify({ error: sanitizeError(error, isProduction) }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+});

@@ -5,18 +5,18 @@ import { fr } from "date-fns/locale";
 
 // Format phone number for display
 function formatPhoneNumber(phone: string): string {
-  if (!phone) return '';
+  if (!phone) return "";
   // Remove any WhatsApp-specific suffixes
-  const cleaned = phone.split('@')[0];
-  
+  const cleaned = phone.split("@")[0];
+
   // Only display if it looks like a valid E.164 number
   if (/^\+?\d{7,15}$/.test(cleaned)) {
     // Add + prefix if not present
-    return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+    return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
   }
-  
+
   // For LID identifiers or invalid formats, return empty
-  return '';
+  return "";
 }
 
 interface Conversation {
@@ -41,49 +41,47 @@ export function ConversationList({
 }: ConversationListProps) {
   return (
     <ScrollArea className="flex-1">
-        {conversations.map((conv) => (
-          <button
-            key={conv.id}
-            onClick={() => onSelectConversation(conv.id)}
-            className={`w-full p-4 text-left hover:bg-muted transition-colors border-b ${
-              selectedConversationId === conv.id ? "bg-muted" : ""
-            }`}
-          >
-            <div className="flex justify-between items-start mb-1">
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold truncate">
-                  {conv.contact_name || formatPhoneNumber(conv.contact_phone) || 'Contact'}
-                </div>
-                {conv.contact_name && formatPhoneNumber(conv.contact_phone) && (
-                  <div className="text-xs text-muted-foreground truncate">
-                    {formatPhoneNumber(conv.contact_phone)}
-                  </div>
-                )}
+      {conversations.map((conv) => (
+        <button
+          key={conv.id}
+          onClick={() => onSelectConversation(conv.id)}
+          className={`w-full p-4 text-left hover:bg-muted transition-colors border-b ${
+            selectedConversationId === conv.id ? "bg-muted" : ""
+          }`}
+        >
+          <div className="flex justify-between items-start mb-1">
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold truncate">
+                {conv.contact_name || formatPhoneNumber(conv.contact_phone) || "Contact"}
               </div>
-              {conv.unread_count > 0 && (
-                <Badge variant="default" className="ml-2 flex-shrink-0">
-                  {conv.unread_count}
-                </Badge>
+              {conv.contact_name && formatPhoneNumber(conv.contact_phone) && (
+                <div className="text-xs text-muted-foreground truncate">
+                  {formatPhoneNumber(conv.contact_phone)}
+                </div>
               )}
             </div>
-            <p className="text-sm text-muted-foreground truncate">
-              {conv.last_message_text || "Aucun message"}
-            </p>
-            {conv.last_message_at && (
-              <p className="text-xs text-muted-foreground mt-1">
-                {formatDistanceToNow(new Date(conv.last_message_at), {
-                  addSuffix: true,
-                  locale: fr,
-                })}
-              </p>
+            {conv.unread_count > 0 && (
+              <Badge variant="default" className="ml-2 flex-shrink-0">
+                {conv.unread_count}
+              </Badge>
             )}
-          </button>
-        ))}
-        {conversations.length === 0 && (
-          <div className="p-8 text-center text-muted-foreground">
-            Aucune conversation
           </div>
-        )}
-      </ScrollArea>
+          <p className="text-sm text-muted-foreground truncate">
+            {conv.last_message_text || "Aucun message"}
+          </p>
+          {conv.last_message_at && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {formatDistanceToNow(new Date(conv.last_message_at), {
+                addSuffix: true,
+                locale: fr,
+              })}
+            </p>
+          )}
+        </button>
+      ))}
+      {conversations.length === 0 && (
+        <div className="p-8 text-center text-muted-foreground">Aucune conversation</div>
+      )}
+    </ScrollArea>
   );
 }

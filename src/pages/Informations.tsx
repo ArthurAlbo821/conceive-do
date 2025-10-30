@@ -9,33 +9,39 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { useUserInformations, type UserInformations } from "@/hooks/useUserInformations";
 import { AvailabilityManager } from "@/components/availability/AvailabilityManager";
 
 const informationsSchema = z.object({
-  prestations: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string().min(1, "La prestation ne peut pas être vide"),
-    })
-  ).max(10, "Maximum 10 prestations"),
-  
-  extras: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string().min(1, "Le nom de l'extra ne peut pas être vide"),
-      price: z.coerce.number().min(0, "Le prix doit être positif"),
-    })
-  ).max(10, "Maximum 10 extras"),
-  
-  taboos: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string().min(1, "Le taboo ne peut pas être vide"),
-    })
-  ).max(10, "Maximum 10 taboos"),
-  
+  prestations: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1, "La prestation ne peut pas être vide"),
+      })
+    )
+    .max(10, "Maximum 10 prestations"),
+
+  extras: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1, "Le nom de l'extra ne peut pas être vide"),
+        price: z.coerce.number().min(0, "Le prix doit être positif"),
+      })
+    )
+    .max(10, "Maximum 10 extras"),
+
+  taboos: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string().min(1, "Le taboo ne peut pas être vide"),
+      })
+    )
+    .max(10, "Maximum 10 taboos"),
+
   tarifs: z.array(
     z.object({
       id: z.string(),
@@ -43,7 +49,7 @@ const informationsSchema = z.object({
       price: z.coerce.number().min(0, "Le prix doit être positif"),
     })
   ),
-  
+
   adresse: z.string().optional(),
 });
 
@@ -51,7 +57,7 @@ type FormValues = z.infer<typeof informationsSchema>;
 
 const Informations = () => {
   const { informations, isLoading, saveInformations, isSaving } = useUserInformations();
-  
+
   const form = useForm<FormValues>({
     resolver: zodResolver(informationsSchema),
     defaultValues: {
@@ -92,10 +98,10 @@ const Informations = () => {
   const onSubmit = (data: FormValues) => {
     // Ensure all required fields are present
     const formattedData: UserInformations = {
-      prestations: data.prestations.map(p => ({ id: p.id, name: p.name })),
-      extras: data.extras.map(e => ({ id: e.id, name: e.name, price: e.price })),
-      taboos: data.taboos.map(t => ({ id: t.id, name: t.name })),
-      tarifs: data.tarifs.map(t => ({ id: t.id, duration: t.duration, price: t.price })),
+      prestations: data.prestations.map((p) => ({ id: p.id, name: p.name })),
+      extras: data.extras.map((e) => ({ id: e.id, name: e.name, price: e.price })),
+      taboos: data.taboos.map((t) => ({ id: t.id, name: t.name })),
+      tarifs: data.tarifs.map((t) => ({ id: t.id, duration: t.duration, price: t.price })),
       adresse: data.adresse || "",
     };
     saveInformations(formattedData);
@@ -170,9 +176,7 @@ const Informations = () => {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        prestationsArray.append({ id: crypto.randomUUID(), name: "" })
-                      }
+                      onClick={() => prestationsArray.append({ id: crypto.randomUUID(), name: "" })}
                       disabled={prestationsArray.fields.length >= 10}
                     >
                       <Plus className="h-4 w-4 mr-2" />
@@ -281,9 +285,7 @@ const Informations = () => {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        taboosArray.append({ id: crypto.randomUUID(), name: "" })
-                      }
+                      onClick={() => taboosArray.append({ id: crypto.randomUUID(), name: "" })}
                       disabled={taboosArray.fields.length >= 10}
                     >
                       <Plus className="h-4 w-4 mr-2" />

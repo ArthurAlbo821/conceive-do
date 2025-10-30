@@ -20,7 +20,9 @@ export function Navbar() {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (user?.email) {
         setUserEmail(user.email);
       }
@@ -31,7 +33,7 @@ export function Navbar() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     localStorage.clear();
-    navigate('/auth');
+    navigate("/auth");
   };
 
   const getInitials = (email: string) => {
@@ -44,7 +46,7 @@ export function Navbar() {
         <SidebarTrigger />
         <h1 className="text-xl font-semibold">Dashboard WhatsApp</h1>
       </div>
-      
+
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-10 w-10 rounded-full">
@@ -59,9 +61,7 @@ export function Navbar() {
           <DropdownMenuLabel>
             <div className="flex flex-col space-y-1">
               <p className="text-sm font-medium">Mon compte</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {userEmail}
-              </p>
+              <p className="text-xs text-muted-foreground truncate">{userEmail}</p>
             </div>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />

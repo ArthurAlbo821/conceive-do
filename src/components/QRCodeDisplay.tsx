@@ -1,8 +1,8 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Clock } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Clock } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 interface QRCodeDisplayProps {
   qrCode: string;
@@ -11,7 +11,12 @@ interface QRCodeDisplayProps {
   lastQrUpdate?: string | null;
 }
 
-export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrUpdate }: QRCodeDisplayProps) => {
+export const QRCodeDisplay = ({
+  qrCode,
+  onRefresh,
+  isRefreshing = false,
+  lastQrUpdate,
+}: QRCodeDisplayProps) => {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const QR_EXPIRATION_SECONDS = 60; // 1 minute
 
@@ -96,9 +101,7 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
   return (
     <Card className="w-full max-w-md mx-auto">
       <CardHeader>
-        <CardTitle className="text-2xl font-bold text-center">
-          Connectez votre WhatsApp
-        </CardTitle>
+        <CardTitle className="text-2xl font-bold text-center">Connectez votre WhatsApp</CardTitle>
         <CardDescription className="text-center">
           Scannez le QR code pour connecter votre numéro
         </CardDescription>
@@ -106,17 +109,16 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
       <CardContent className="flex flex-col items-center space-y-6">
         <div className="relative">
           {lastQrUpdate && (
-            <Badge variant="secondary" className="absolute -top-6 left-1/2 -translate-x-1/2 z-10 gap-1">
+            <Badge
+              variant="secondary"
+              className="absolute -top-6 left-1/2 -translate-x-1/2 z-10 gap-1"
+            >
               <Clock className="w-3 h-3" />
-              {minutes}:{seconds.toString().padStart(2, '0')}
+              {minutes}:{seconds.toString().padStart(2, "0")}
             </Badge>
           )}
           <div className="bg-white p-4 rounded-lg shadow-inner">
-            <img
-              src={qrCode}
-              alt="QR Code WhatsApp"
-              className="w-64 h-64"
-            />
+            <img src={qrCode} alt="QR Code WhatsApp" className="w-64 h-64" />
           </div>
         </div>
 
@@ -130,13 +132,8 @@ export const QRCodeDisplay = ({ qrCode, onRefresh, isRefreshing = false, lastQrU
           </ol>
         </div>
 
-        <Button 
-          onClick={onRefresh} 
-          variant="outline" 
-          className="w-full" 
-          disabled={isRefreshing}
-        >
-          {isRefreshing ? 'Rafraîchissement...' : 'Rafraîchir le QR Code'}
+        <Button onClick={onRefresh} variant="outline" className="w-full" disabled={isRefreshing}>
+          {isRefreshing ? "Rafraîchissement..." : "Rafraîchir le QR Code"}
         </Button>
       </CardContent>
     </Card>

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import type { Json } from "@/integrations/supabase/types";
 
 export interface Prestation {
   id: string;
@@ -41,7 +42,9 @@ export const useUserInformations = () => {
   const { data: informations, isLoading } = useQuery({
     queryKey: ["user-informations"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
@@ -78,21 +81,24 @@ export const useUserInformations = () => {
 
   const saveMutation = useMutation({
     mutationFn: async (data: UserInformations) => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { error } = await supabase
-        .from("user_informations")
-        .upsert({
+      const { error } = await supabase.from("user_informations").upsert(
+        {
           user_id: user.id,
-          prestations: data.prestations as any,
-          extras: data.extras as any,
-          taboos: data.taboos as any,
-          tarifs: data.tarifs as any,
+          prestations: data.prestations as unknown as Json,
+          extras: data.extras as unknown as Json,
+          taboos: data.taboos as unknown as Json,
+          tarifs: data.tarifs as unknown as Json,
           adresse: data.adresse || "",
-        }, {
-          onConflict: "user_id"
-        });
+        },
+        {
+          onConflict: "user_id",
+        }
+      );
 
       if (error) throw error;
     },

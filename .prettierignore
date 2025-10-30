@@ -1,0 +1,26 @@
+# Dependencies
+node_modules
+package-lock.json
+
+# Build outputs
+dist
+dist-ssr
+build
+.next
+
+# Environment files
+.env
+.env.*
+
+# Generated files
+src/integrations/supabase/types.ts
+
+# IDE
+.vscode
+.idea
+
+# Logs
+*.log
+
+# OS
+.DS_Store

@@ -26,7 +26,9 @@ export const useAppointments = () => {
   const { data: appointments, isLoading } = useQuery({
     queryKey: ["appointments"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
@@ -41,16 +43,18 @@ export const useAppointments = () => {
   });
 
   const addMutation = useMutation({
-    mutationFn: async (appointment: Omit<Appointment, "id" | "user_id" | "created_at" | "updated_at">) => {
-      const { data: { user } } = await supabase.auth.getUser();
+    mutationFn: async (
+      appointment: Omit<Appointment, "id" | "user_id" | "created_at" | "updated_at">
+    ) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { error } = await supabase
-        .from("appointments")
-        .insert({
-          user_id: user.id,
-          ...appointment,
-        });
+      const { error } = await supabase.from("appointments").insert({
+        user_id: user.id,
+        ...appointment,
+      });
 
       if (error) throw error;
     },
@@ -72,10 +76,7 @@ export const useAppointments = () => {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Appointment> & { id: string }) => {
-      const { error } = await supabase
-        .from("appointments")
-        .update(updates)
-        .eq("id", id);
+      const { error } = await supabase.from("appointments").update(updates).eq("id", id);
 
       if (error) throw error;
     },
@@ -97,10 +98,7 @@ export const useAppointments = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("appointments")
-        .delete()
-        .eq("id", id);
+      const { error } = await supabase.from("appointments").delete().eq("id", id);
 
       if (error) throw error;
     },

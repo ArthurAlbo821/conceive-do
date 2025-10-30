@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 export interface EvolutionInstance {
   id: string;
   user_id: string;
   instance_name: string;
   instance_token: string;
-  instance_status: 'creating' | 'disconnected' | 'connecting' | 'connected' | 'error';
+  instance_status: "creating" | "disconnected" | "connecting" | "connected" | "error";
   qr_code: string | null;
   phone_number: string | null;
   webhook_url: string;
@@ -29,16 +29,18 @@ export const useEvolutionInstance = () => {
   // Fetch instance from database
   const fetchInstance = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         setLoading(false);
         return;
       }
 
       const { data, error: fetchError } = await supabase
-        .from('evolution_instances')
-        .select('*')
-        .eq('user_id', user.id)
+        .from("evolution_instances")
+        .select("*")
+        .eq("user_id", user.id)
         .maybeSingle();
 
       if (fetchError) throw fetchError;
@@ -46,8 +48,8 @@ export const useEvolutionInstance = () => {
       setInstance(data as EvolutionInstance);
       setError(null);
     } catch (err) {
-      console.error('Error fetching instance:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch instance');
+      console.error("Error fetching instance:", err);
+      setError(err instanceof Error ? err.message : "Failed to fetch instance");
     } finally {
       setLoading(false);
     }
@@ -56,13 +58,13 @@ export const useEvolutionInstance = () => {
   // Create new instance or refresh QR code
   const createInstance = async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
     const { forceRefresh = false, silent = false } = options;
-    
+
     setLoading(true);
     setError(null);
 
     try {
       const { data, error: functionError } = await supabase.functions.invoke(
-        'create-evolution-instance',
+        "create-evolution-instance",
         { body: { forceRefresh } }
       );
 
@@ -72,16 +74,16 @@ export const useEvolutionInstance = () => {
         setInstance(data.instance);
         if (!silent) {
           toast({
-            title: forceRefresh ? 'QR code rafraîchi' : 'Instance créée',
-            description: forceRefresh 
-              ? 'Scannez le nouveau QR code pour vous connecter.' 
-              : 'Votre instance WhatsApp est prête. Scannez le QR code.',
+            title: forceRefresh ? "QR code rafraîchi" : "Instance créée",
+            description: forceRefresh
+              ? "Scannez le nouveau QR code pour vous connecter."
+              : "Votre instance WhatsApp est prête. Scannez le QR code.",
           });
         }
       } else {
         // Special handling for "already in use" errors
-        if (data?.details?.includes?.('already in use') || data?.code === 'instance_name_in_use') {
-          console.log('[useEvolutionInstance] Instance already exists, syncing status...');
+        if (data?.details?.includes?.("already in use") || data?.code === "instance_name_in_use") {
+          console.log("[useEvolutionInstance] Instance already exists, syncing status...");
           await checkStatus();
           if (!silent) {
             toast({
@@ -91,22 +93,22 @@ export const useEvolutionInstance = () => {
           }
           return;
         }
-        throw new Error(data?.error || 'Failed to create instance');
+        throw new Error(data?.error || "Failed to create instance");
       }
     } catch (err) {
-      console.error('Error creating instance:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create instance';
+      console.error("Error creating instance:", err);
+      const errorMessage = err instanceof Error ? err.message : "Failed to create instance";
       setError(errorMessage);
-      
+
       // Deduplicate error toasts (30s cooldown for non-silent calls)
       if (!silent) {
         const now = Date.now();
         if (now - lastErrorToastRef.current > 30000) {
           lastErrorToastRef.current = now;
           toast({
-            title: 'Erreur',
+            title: "Erreur",
             description: errorMessage,
-            variant: 'destructive',
+            variant: "destructive",
           });
         }
       }
@@ -119,7 +121,7 @@ export const useEvolutionInstance = () => {
   const checkStatus = async () => {
     try {
       const { data, error: functionError } = await supabase.functions.invoke(
-        'check-instance-status',
+        "check-instance-status",
         { body: {} }
       );
 
@@ -130,7 +132,7 @@ export const useEvolutionInstance = () => {
         await fetchInstance();
       }
     } catch (err) {
-      console.error('Error checking status:', err);
+      console.error("Error checking status:", err);
     }
   };
 
@@ -144,17 +146,17 @@ export const useEvolutionInstance = () => {
     if (!instance) return;
 
     const channel = supabase
-      .channel('evolution_instances_changes')
+      .channel("evolution_instances_changes")
       .on(
-        'postgres_changes',
+        "postgres_changes",
         {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'evolution_instances',
+          event: "UPDATE",
+          schema: "public",
+          table: "evolution_instances",
           filter: `id=eq.${instance.id}`,
         },
         (payload) => {
-          console.log('Instance updated:', payload.new);
+          console.log("Instance updated:", payload.new);
           setInstance(payload.new as EvolutionInstance);
         }
       )
@@ -167,7 +169,7 @@ export const useEvolutionInstance = () => {
 
   // Polling when status is 'connecting'
   useEffect(() => {
-    if (instance?.instance_status === 'connecting') {
+    if (instance?.instance_status === "connecting") {
       const interval = setInterval(() => {
         checkStatus();
       }, 5000); // Poll every 5 seconds
@@ -178,7 +180,7 @@ export const useEvolutionInstance = () => {
 
   // Continuous polling when status is 'connected' to detect disconnections
   useEffect(() => {
-    if (instance?.instance_status === 'connected') {
+    if (instance?.instance_status === "connected") {
       const interval = setInterval(() => {
         checkStatus();
       }, 15000); // Poll every 15 seconds for connected instances
@@ -189,7 +191,12 @@ export const useEvolutionInstance = () => {
 
   // Auto-refresh QR code before expiration
   useEffect(() => {
-    if (!instance || instance.instance_status !== 'connecting' || !instance.last_qr_update || !instance.qr_code) {
+    if (
+      !instance ||
+      instance.instance_status !== "connecting" ||
+      !instance.last_qr_update ||
+      !instance.qr_code
+    ) {
       return;
     }
 
@@ -200,7 +207,7 @@ export const useEvolutionInstance = () => {
 
       // Refresh at 110 seconds (10 seconds before expiration) - guarded to run once per QR
       if (elapsed >= 110 && lastAutoRefreshFromRef.current !== instance.last_qr_update) {
-        console.log('[useEvolutionInstance] Auto-refreshing QR code at 1:50 (silent)');
+        console.log("[useEvolutionInstance] Auto-refreshing QR code at 1:50 (silent)");
         lastAutoRefreshFromRef.current = instance.last_qr_update!;
         createInstance({ forceRefresh: true, silent: true });
       }
@@ -214,16 +221,14 @@ export const useEvolutionInstance = () => {
 
   // Auto-recovery: if connecting but no QR code, try to get one (with cooldown)
   useEffect(() => {
-    if (
-      instance?.instance_status === 'connecting' && 
-      !instance.qr_code &&
-      !loading
-    ) {
+    if (instance?.instance_status === "connecting" && !instance.qr_code && !loading) {
       const now = Date.now();
       const cooldown = 60000; // 60 seconds between recovery attempts
-      
+
       if (now - lastRecoveryAttemptRef.current > cooldown) {
-        console.log('[useEvolutionInstance] Auto-recovering QR code for connecting instance (silent)');
+        console.log(
+          "[useEvolutionInstance] Auto-recovering QR code for connecting instance (silent)"
+        );
         lastRecoveryAttemptRef.current = now;
         createInstance({ forceRefresh: true, silent: true });
       }

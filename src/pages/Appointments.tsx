@@ -7,12 +7,21 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+// Select components imported but not used - may be needed for future features
+// import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAppointments, type Appointment } from "@/hooks/useAppointments";
 
 const STATUS_COLORS = {
@@ -30,7 +39,8 @@ const STATUS_LABELS = {
 };
 
 const Appointments = () => {
-  const { appointments, isLoading, addAppointment, updateAppointment, deleteAppointment } = useAppointments();
+  const { appointments, isLoading, addAppointment, updateAppointment, deleteAppointment } =
+    useAppointments();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [formData, setFormData] = useState({
@@ -44,14 +54,14 @@ const Appointments = () => {
 
   const handleSubmit = () => {
     if (!selectedDate) return;
-    
+
     const startTime = formData.start_time;
     const endTime = formData.end_time;
     const startHour = parseInt(startTime.split(":")[0]);
     const startMinute = parseInt(startTime.split(":")[1]);
     const endHour = parseInt(endTime.split(":")[0]);
     const endMinute = parseInt(endTime.split(":")[1]);
-    const durationMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+    const durationMinutes = endHour * 60 + endMinute - (startHour * 60 + startMinute);
 
     addAppointment({
       contact_name: formData.contact_name,
@@ -115,21 +125,21 @@ const Appointments = () => {
         <div className="space-y-2 text-sm">
           <div className="flex items-center gap-2">
             <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-            <span>{format(new Date(appointment.appointment_date), "EEEE d MMMM yyyy", { locale: fr })}</span>
+            <span>
+              {format(new Date(appointment.appointment_date), "EEEE d MMMM yyyy", { locale: fr })}
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-muted-foreground" />
-            <span>{appointment.start_time} - {appointment.end_time} ({appointment.duration_minutes} min)</span>
+            <span>
+              {appointment.start_time} - {appointment.end_time} ({appointment.duration_minutes} min)
+            </span>
           </div>
           {appointment.service && (
-            <div className="text-muted-foreground">
-              Service: {appointment.service}
-            </div>
+            <div className="text-muted-foreground">Service: {appointment.service}</div>
           )}
           {appointment.notes && (
-            <div className="text-muted-foreground italic text-xs mt-2">
-              {appointment.notes}
-            </div>
+            <div className="text-muted-foreground italic text-xs mt-2">{appointment.notes}</div>
           )}
         </div>
 
@@ -228,7 +238,9 @@ const Appointments = () => {
                       <Label>Téléphone</Label>
                       <Input
                         value={formData.contact_phone}
-                        onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                        onChange={(e) =>
+                          setFormData({ ...formData, contact_phone: e.target.value })
+                        }
                         placeholder="+33 6 12 34 56 78"
                       />
                     </div>
@@ -282,7 +294,10 @@ const Appointments = () => {
                   <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                     Annuler
                   </Button>
-                  <Button onClick={handleSubmit} disabled={!selectedDate || !formData.contact_name || !formData.contact_phone}>
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={!selectedDate || !formData.contact_name || !formData.contact_phone}
+                  >
                     Créer le rendez-vous
                   </Button>
                 </DialogFooter>
@@ -318,9 +333,7 @@ const Appointments = () => {
                 <Card>
                   <CardHeader>
                     <CardTitle>Historique</CardTitle>
-                    <CardDescription>
-                      Rendez-vous passés
-                    </CardDescription>
+                    <CardDescription>Rendez-vous passés</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {pastAppointments.length === 0 ? (
@@ -328,9 +341,9 @@ const Appointments = () => {
                         Aucun historique
                       </p>
                     ) : (
-                      pastAppointments.slice(0, 10).map((apt) => (
-                        <AppointmentCard key={apt.id} appointment={apt} />
-                      ))
+                      pastAppointments
+                        .slice(0, 10)
+                        .map((apt) => <AppointmentCard key={apt.id} appointment={apt} />)
                     )}
                   </CardContent>
                 </Card>

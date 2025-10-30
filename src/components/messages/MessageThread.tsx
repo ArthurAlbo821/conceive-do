@@ -26,7 +26,7 @@ export function MessageThread({
   messages,
   contactPhone,
   contactName,
-  conversationId,
+  conversationId: _conversationId,
   aiEnabled,
   onToggleAI,
 }: MessageThreadProps) {
@@ -41,33 +41,33 @@ export function MessageThread({
   // Intelligent scroll: only auto-scroll if user is near bottom or initial load
   useEffect(() => {
     if (!scrollRef.current) return;
-    
+
     const scrollElement = scrollRef.current;
-    const isNearBottom = 
+    const isNearBottom =
       scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 100;
-    
+
     // Auto-scroll only if at bottom or initial load
     if (isInitialLoad || isNearBottom) {
       scrollElement.scrollTop = scrollElement.scrollHeight;
     }
-    
+
     setIsInitialLoad(false);
   }, [messages, isInitialLoad]);
 
   // Format phone number for display
   const formatPhoneNumber = (phone: string) => {
-    if (!phone) return '';
+    if (!phone) return "";
     // Remove any WhatsApp-specific suffixes
-    const cleaned = phone.split('@')[0];
-    
+    const cleaned = phone.split("@")[0];
+
     // Only display if it looks like a valid E.164 number
     if (/^\+?\d{7,15}$/.test(cleaned)) {
       // Add + prefix if not present
-      return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+      return cleaned.startsWith("+") ? cleaned : `+${cleaned}`;
     }
-    
+
     // For LID identifiers or invalid formats, return empty
-    return '';
+    return "";
   };
 
   return (
@@ -75,20 +75,18 @@ export function MessageThread({
       <div className="p-4 border-b flex-shrink-0 flex items-center justify-between">
         <div>
           <h2 className="font-semibold text-lg">
-            {contactName || formatPhoneNumber(contactPhone) || 'Contact'}
+            {contactName || formatPhoneNumber(contactPhone) || "Contact"}
           </h2>
           {contactName && formatPhoneNumber(contactPhone) && (
             <p className="text-sm text-muted-foreground">{formatPhoneNumber(contactPhone)}</p>
           )}
         </div>
-        
+
         <div className="flex items-center space-x-2">
-          <Label htmlFor="ai-toggle" className="text-sm">IA</Label>
-          <Switch
-            id="ai-toggle"
-            checked={aiEnabled}
-            onCheckedChange={onToggleAI}
-          />
+          <Label htmlFor="ai-toggle" className="text-sm">
+            IA
+          </Label>
+          <Switch id="ai-toggle" checked={aiEnabled} onCheckedChange={onToggleAI} />
         </div>
       </div>
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
@@ -96,15 +94,11 @@ export function MessageThread({
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`flex ${
-                msg.direction === "outgoing" ? "justify-end" : "justify-start"
-              }`}
+              className={`flex ${msg.direction === "outgoing" ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`max-w-[70%] rounded-lg p-3 ${
-                  msg.direction === "outgoing"
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted"
+                  msg.direction === "outgoing" ? "bg-primary text-primary-foreground" : "bg-muted"
                 }`}
               >
                 <p className="break-words">{msg.content}</p>

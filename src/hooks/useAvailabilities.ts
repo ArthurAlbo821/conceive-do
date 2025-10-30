@@ -20,7 +20,9 @@ export const useAvailabilities = () => {
   const { data: availabilities, isLoading } = useQuery({
     queryKey: ["availabilities"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
       const { data, error } = await supabase
@@ -35,16 +37,18 @@ export const useAvailabilities = () => {
   });
 
   const addMutation = useMutation({
-    mutationFn: async (availability: Omit<Availability, "id" | "user_id" | "created_at" | "updated_at">) => {
-      const { data: { user } } = await supabase.auth.getUser();
+    mutationFn: async (
+      availability: Omit<Availability, "id" | "user_id" | "created_at" | "updated_at">
+    ) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
 
-      const { error } = await supabase
-        .from("availabilities")
-        .insert({
-          user_id: user.id,
-          ...availability,
-        });
+      const { error } = await supabase.from("availabilities").insert({
+        user_id: user.id,
+        ...availability,
+      });
 
       if (error) throw error;
     },
@@ -66,10 +70,7 @@ export const useAvailabilities = () => {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Availability> & { id: string }) => {
-      const { error } = await supabase
-        .from("availabilities")
-        .update(updates)
-        .eq("id", id);
+      const { error } = await supabase.from("availabilities").update(updates).eq("id", id);
 
       if (error) throw error;
     },
@@ -91,10 +92,7 @@ export const useAvailabilities = () => {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("availabilities")
-        .delete()
-        .eq("id", id);
+      const { error } = await supabase.from("availabilities").delete().eq("id", id);
 
       if (error) throw error;
     },

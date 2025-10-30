@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.76.1",
+    "fuse.js": "https://esm.sh/fuse.js@7.0.0"
+  }
+}

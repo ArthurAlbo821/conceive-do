@@ -52,11 +52,16 @@ export function useConversations(instanceId: string | undefined) {
             setConversations((prev) => [payload.new as Conversation, ...prev]);
           } else if (payload.eventType === "UPDATE") {
             setConversations((prev) =>
-              prev.map((c) => (c.id === (payload.new as Conversation).id ? payload.new as Conversation : c))
+              prev
+                .map((c) =>
+                  c.id === (payload.new as Conversation).id ? (payload.new as Conversation) : c
+                )
                 .sort((a, b) => {
                   if (!a.last_message_at) return 1;
                   if (!b.last_message_at) return -1;
-                  return new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
+                  return (
+                    new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime()
+                  );
                 })
             );
           }

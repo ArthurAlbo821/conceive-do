@@ -1,24 +1,24 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useToast } from "@/hooks/use-toast";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 
 const signUpSchema = z.object({
-  email: z.string().email('Email invalide'),
-  password: z.string().min(6, 'Le mot de passe doit contenir au moins 6 caractères'),
-  fullName: z.string().min(2, 'Le nom doit contenir au moins 2 caractères'),
+  email: z.string().email("Email invalide"),
+  password: z.string().min(6, "Le mot de passe doit contenir au moins 6 caractères"),
+  fullName: z.string().min(2, "Le nom doit contenir au moins 2 caractères"),
 });
 
 const signInSchema = z.object({
-  email: z.string().email('Email invalide'),
-  password: z.string().min(1, 'Le mot de passe est requis'),
+  email: z.string().email("Email invalide"),
+  password: z.string().min(1, "Le mot de passe est requis"),
 });
 
 type SignUpFormData = z.infer<typeof signUpSchema>;
@@ -33,32 +33,36 @@ const Auth = () => {
   const signUpForm = useForm<SignUpFormData>({
     resolver: zodResolver(signUpSchema),
     defaultValues: {
-      email: '',
-      password: '',
-      fullName: '',
+      email: "",
+      password: "",
+      fullName: "",
     },
   });
 
   const signInForm = useForm<SignInFormData>({
     resolver: zodResolver(signInSchema),
     defaultValues: {
-      email: '',
-      password: '',
+      email: "",
+      password: "",
     },
   });
 
   useEffect(() => {
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session) {
-        navigate('/dashboard');
+        navigate("/dashboard");
       }
     };
     checkAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
-        navigate('/dashboard');
+        navigate("/dashboard");
       }
     });
 
@@ -82,14 +86,14 @@ const Auth = () => {
       if (error) throw error;
 
       toast({
-        title: 'Compte créé !',
-        description: 'Vérifiez votre email pour confirmer votre compte.',
+        title: "Compte créé !",
+        description: "Vérifiez votre email pour confirmer votre compte.",
       });
     } catch (error: any) {
       toast({
-        title: 'Erreur',
-        description: error.message || 'Une erreur est survenue lors de l\'inscription',
-        variant: 'destructive',
+        title: "Erreur",
+        description: error.message || "Une erreur est survenue lors de l'inscription",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -107,14 +111,14 @@ const Auth = () => {
       if (error) throw error;
 
       toast({
-        title: 'Connexion réussie !',
-        description: 'Vous êtes maintenant connecté.',
+        title: "Connexion réussie !",
+        description: "Vous êtes maintenant connecté.",
       });
     } catch (error: any) {
       toast({
-        title: 'Erreur',
-        description: error.message || 'Email ou mot de passe incorrect',
-        variant: 'destructive',
+        title: "Erreur",
+        description: error.message || "Email ou mot de passe incorrect",
+        variant: "destructive",
       });
     } finally {
       setLoading(false);
@@ -126,12 +130,10 @@ const Auth = () => {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle className="text-2xl font-bold text-center">
-            {isSignUp ? 'Créer un compte' : 'Connexion'}
+            {isSignUp ? "Créer un compte" : "Connexion"}
           </CardTitle>
           <CardDescription className="text-center">
-            {isSignUp
-              ? 'Créez votre compte pour commencer'
-              : 'Connectez-vous à votre compte'}
+            {isSignUp ? "Créez votre compte pour commencer" : "Connectez-vous à votre compte"}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -142,7 +144,7 @@ const Auth = () => {
                 <Input
                   id="fullName"
                   type="text"
-                  {...signUpForm.register('fullName')}
+                  {...signUpForm.register("fullName")}
                   disabled={loading}
                 />
                 {signUpForm.formState.errors.fullName && (
@@ -156,7 +158,7 @@ const Auth = () => {
                 <Input
                   id="email"
                   type="email"
-                  {...signUpForm.register('email')}
+                  {...signUpForm.register("email")}
                   disabled={loading}
                 />
                 {signUpForm.formState.errors.email && (
@@ -170,7 +172,7 @@ const Auth = () => {
                 <Input
                   id="password"
                   type="password"
-                  {...signUpForm.register('password')}
+                  {...signUpForm.register("password")}
                   disabled={loading}
                 />
                 {signUpForm.formState.errors.password && (
@@ -180,7 +182,7 @@ const Auth = () => {
                 )}
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Création...' : 'Créer un compte'}
+                {loading ? "Création..." : "Créer un compte"}
               </Button>
             </form>
           ) : (
@@ -190,7 +192,7 @@ const Auth = () => {
                 <Input
                   id="signin-email"
                   type="email"
-                  {...signInForm.register('email')}
+                  {...signInForm.register("email")}
                   disabled={loading}
                 />
                 {signInForm.formState.errors.email && (
@@ -204,7 +206,7 @@ const Auth = () => {
                 <Input
                   id="signin-password"
                   type="password"
-                  {...signInForm.register('password')}
+                  {...signInForm.register("password")}
                   disabled={loading}
                 />
                 {signInForm.formState.errors.password && (
@@ -214,7 +216,7 @@ const Auth = () => {
                 )}
               </div>
               <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Connexion...' : 'Se connecter'}
+                {loading ? "Connexion..." : "Se connecter"}
               </Button>
             </form>
           )}
@@ -227,8 +229,8 @@ const Auth = () => {
               className="text-sm"
             >
               {isSignUp
-                ? 'Vous avez déjà un compte ? Se connecter'
-                : 'Pas encore de compte ? Créer un compte'}
+                ? "Vous avez déjà un compte ? Se connecter"
+                : "Pas encore de compte ? Créer un compte"}
             </Button>
           </div>
         </CardContent>

@@ -18,7 +18,7 @@ export function AppSidebar() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     localStorage.clear();
-    navigate('/auth');
+    navigate("/auth");
   };
 
   return (
