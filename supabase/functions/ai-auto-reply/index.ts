@@ -177,6 +177,56 @@ async function logHallucinationAttempt(
   }
 }
 
+/**
+ * Fonction de logging centralisée pour tous les événements AI
+ * Utilise la table ai_logs avec un format flexible
+ */
+async function logAIEvent(
+  supabase: any,
+  userId: string,
+  conversationId: string,
+  eventType: string,
+  message: string,
+  metadata?: Record<string, any>
+) {
+  try {
+    // Tronquer les grandes chaînes pour éviter de surcharger la DB
+    const truncateString = (str: string, maxLength: number = 10000): string => {
+      if (!str) return str;
+      return str.length > maxLength ? str.substring(0, maxLength) + '... [tronqué]' : str;
+    };
+
+    // Préparer les metadata en tronquant les valeurs trop longues
+    let truncatedMetadata = metadata;
+    if (metadata) {
+      truncatedMetadata = {};
+      for (const [key, value] of Object.entries(metadata)) {
+        if (typeof value === 'string') {
+          truncatedMetadata[key] = truncateString(value);
+        } else if (typeof value === 'object' && value !== null) {
+          // Convertir en JSON puis tronquer
+          const jsonStr = JSON.stringify(value);
+          truncatedMetadata[key] = truncateString(jsonStr);
+        } else {
+          truncatedMetadata[key] = value;
+        }
+      }
+    }
+
+    await supabase.from('ai_logs').insert({
+      user_id: userId,
+      conversation_id: conversationId,
+      event_type: eventType,
+      message: truncateString(message, 5000),
+      valid_options: truncatedMetadata, // Utiliser le champ JSONB pour stocker metadata
+      created_at: new Date().toISOString()
+    });
+  } catch (error) {
+    console.warn(`[ai-auto-reply] Failed to log event ${eventType}:`, error);
+    // Non-bloquant, on continue même si le log échoue
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -193,6 +243,21 @@ Deno.serve(async (req) => {
     console.log('[ai-auto-reply] Processing auto-reply for conversation:', conversation_id);
     console.log('[ai-auto-reply] Original message:', message_text);
 
+    // Log réception du webhook
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'webhook_received',
+      `Message reçu de ${contact_name}`,
+      {
+        contact_name,
+        contact_phone,
+        message_text,
+        timestamp: new Date().toISOString()
+      }
+    );
+
     // Get current date for temporal parsing
     const now = new Date();
 
@@ -202,6 +267,25 @@ Deno.serve(async (req) => {
 
     if (enrichedMessage !== message_text) {
       console.log('[ai-auto-reply] Message enriched with Duckling:', enrichedMessage);
+
+      // Log enrichissement Duckling
+      await logAIEvent(
+        supabase,
+        user_id,
+        conversation_id,
+        'duckling_enriched',
+        'Expressions temporelles détectées et converties',
+        {
+          original_message: message_text,
+          enriched_message: enrichedMessage,
+          entities_count: ducklingEntities.length,
+          entities: ducklingEntities.map(e => ({
+            text: e.body,
+            dim: e.dim,
+            value: e.value.value
+          }))
+        }
+      );
     }
 
     // Get user informations (prestations, extras, taboos, tarifs, adresse)
@@ -213,6 +297,22 @@ Deno.serve(async (req) => {
 
     if (userInfoError) {
       console.error('[ai-auto-reply] Error fetching user informations:', userInfoError);
+
+      // Log erreur de récupération des données utilisateur
+      await logAIEvent(
+        supabase,
+        user_id,
+        conversation_id,
+        'error_occurred',
+        'Erreur lors de la récupération des informations utilisateur',
+        {
+          error_type: 'database_fetch_failed',
+          table: 'user_informations',
+          error_details: userInfoError,
+          recovery_action: 'request_aborted'
+        }
+      );
+
       return new Response(JSON.stringify({ error: 'User informations not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -242,6 +342,25 @@ Deno.serve(async (req) => {
 
     console.log('[ai-auto-reply] Found', availabilities?.length || 0, 'availabilities and', appointments?.length || 0, 'upcoming appointments');
 
+    // Log récupération des données utilisateur
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'user_data_fetched',
+      'Données utilisateur chargées avec succès',
+      {
+        prestations_count: userInfo.prestations?.length || 0,
+        extras_count: userInfo.extras?.length || 0,
+        tarifs_count: userInfo.tarifs?.length || 0,
+        taboos_count: userInfo.taboos?.length || 0,
+        has_address: !!userInfo.adresse,
+        availabilities_count: availabilities?.length || 0,
+        upcoming_appointments_count: appointments?.length || 0,
+        date_range: `${today} to ${nextWeek}`
+      }
+    );
+
     // Get last 20 messages from conversation
     const { data: messages, error: msgError } = await supabase
       .from('messages')
@@ -252,6 +371,22 @@ Deno.serve(async (req) => {
 
     if (msgError) {
       console.error('[ai-auto-reply] Error fetching messages:', msgError);
+
+      // Log erreur de récupération des messages
+      await logAIEvent(
+        supabase,
+        user_id,
+        conversation_id,
+        'error_occurred',
+        'Erreur lors de la récupération de l\'historique des messages',
+        {
+          error_type: 'database_fetch_failed',
+          table: 'messages',
+          error_details: msgError,
+          recovery_action: 'request_aborted'
+        }
+      );
+
       return new Response(JSON.stringify({ error: 'Failed to fetch messages' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -314,126 +449,127 @@ Deno.serve(async (req) => {
       minute: now.getMinutes()
     };
 
-    // Compute available slots
-    const computeAvailableSlots = () => {
+    // Compute available ranges for today only (continuous time blocks)
+    const computeAvailableRanges = () => {
       if (!availabilities || availabilities.length === 0) {
-        return "Aucune disponibilité configurée. Demande au client de te contacter directement pour fixer un rendez-vous.";
+        return "Aucune dispo configurée";
       }
 
-      const slots: string[] = [];
       const currentDate = new Date();
+      const dayOfWeek = currentDate.getDay();
+      const dateStr = currentDate.toISOString().split('T')[0];
 
-      // For next 7 days
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(currentDate);
-        date.setDate(date.getDate() + i);
-        const dayOfWeek = date.getDay();
-        const dateStr = date.toISOString().split('T')[0];
+      // Find availabilities for today
+      const todayAvails = availabilities.filter((a: any) => a.day_of_week === dayOfWeek);
+      
+      if (todayAvails.length === 0) {
+        return "Pas dispo aujourd'hui";
+      }
 
-        // Find availabilities for this day
-        const dayAvails = availabilities.filter((a: any) => a.day_of_week === dayOfWeek);
+      // Get appointments for today
+      const todayAppointments = appointments?.filter((apt: any) => 
+        apt.appointment_date === dateStr
+      ) || [];
 
-        // For each availability slot
-        for (const avail of dayAvails) {
-          const startHour = parseInt(avail.start_time.split(':')[0]);
-          const startMinute = parseInt(avail.start_time.split(':')[1]);
-          const endHour = parseInt(avail.end_time.split(':')[0]);
-          const endMinute = parseInt(avail.end_time.split(':')[1]);
+      // Build array of all occupied minutes
+      const occupiedMinutes = new Set<number>();
+      todayAppointments.forEach((apt: any) => {
+        const [startH, startM] = apt.start_time.split(':').map(Number);
+        const [endH, endM] = apt.end_time.split(':').map(Number);
+        const startMinute = startH * 60 + startM;
+        const endMinute = endH * 60 + endM;
+        
+        for (let m = startMinute; m < endMinute; m++) {
+          occupiedMinutes.add(m);
+        }
+      });
+
+      // Current time in minutes
+      const currentMinute = currentDate.getHours() * 60 + currentDate.getMinutes();
+
+      // Build available ranges
+      const ranges: string[] = [];
+      
+      for (const avail of todayAvails) {
+        const [startH, startM] = avail.start_time.split(':').map(Number);
+        const [endH, endM] = avail.end_time.split(':').map(Number);
+        
+        let availStartMinute = startH * 60 + startM;
+        let availEndMinute = endH * 60 + endM;
+        
+        // Handle crossing midnight
+        const crossesMidnight = availEndMinute <= availStartMinute;
+        if (crossesMidnight) {
+          availEndMinute += 24 * 60; // Add 24 hours
+        }
+
+        let rangeStart: number | null = null;
+        
+        for (let m = availStartMinute; m <= availEndMinute; m++) {
+          const actualMinute = m % (24 * 60);
+          const isPast = actualMinute < currentMinute && m < 24 * 60;
+          const isOccupied = occupiedMinutes.has(actualMinute);
           
-          // Check if slot crosses midnight
-          const crossesMidnight = avail.end_time <= avail.start_time;
-          
-          // Check if there are any appointments that overlap
-          const dayAppointments = appointments?.filter((apt: any) => 
-            apt.appointment_date === dateStr
-          ) || [];
-
-          if (crossesMidnight) {
-            // Handle slot that crosses midnight in two parts
-            // Part 1: From start_time to 23:59 on current day
-            for (let hour = startHour; hour < 24; hour++) {
-              const slotTime = `${hour.toString().padStart(2, '0')}:00`;
-              const slotEndTime = hour < 23 
-                ? `${(hour + 1).toString().padStart(2, '0')}:00`
-                : '23:59';
-
-              const isOccupied = dayAppointments.some((apt: any) => {
-                const aptStart = apt.start_time;
-                const aptEnd = apt.end_time;
-                return (slotTime >= aptStart && slotTime < aptEnd) || 
-                       (slotEndTime > aptStart && slotEndTime <= aptEnd);
-              });
-
-              if (!isOccupied) {
-                const dayName = DAYS[dayOfWeek];
-                slots.push(`${dayName} ${date.getDate()}/${date.getMonth() + 1} à ${slotTime}`);
-              }
-            }
-            
-            // Part 2: From 00:00 to end_time on next day
-            const nextDate = new Date(date);
-            nextDate.setDate(nextDate.getDate() + 1);
-            const nextDateStr = nextDate.toISOString().split('T')[0];
-            const nextDayOfWeek = nextDate.getDay();
-            
-            const nextDayAppointments = appointments?.filter((apt: any) => 
-              apt.appointment_date === nextDateStr
-            ) || [];
-            
-            for (let hour = 0; hour < endHour; hour++) {
-              const slotTime = `${hour.toString().padStart(2, '0')}:00`;
-              const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
-
-              const isOccupied = nextDayAppointments.some((apt: any) => {
-                const aptStart = apt.start_time;
-                const aptEnd = apt.end_time;
-                return (slotTime >= aptStart && slotTime < aptEnd) || 
-                       (slotEndTime > aptStart && slotEndTime <= aptEnd);
-              });
-
-              if (!isOccupied) {
-                const dayName = DAYS[nextDayOfWeek];
-                slots.push(`${dayName} ${nextDate.getDate()}/${nextDate.getMonth() + 1} à ${slotTime}`);
-              }
+          if (!isPast && !isOccupied) {
+            // Available slot
+            if (rangeStart === null) {
+              rangeStart = m;
             }
           } else {
-            // Standard slot within same day
-            for (let hour = startHour; hour < endHour; hour++) {
-              const slotTime = `${hour.toString().padStart(2, '0')}:00`;
-              const slotEndTime = `${(hour + 1).toString().padStart(2, '0')}:00`;
-
-              // Skip past slots for today
-              if (i === 0) {
-                const slotDateTime = new Date(date);
-                slotDateTime.setHours(hour, 0, 0, 0);
-                if (slotDateTime < now) {
-                  continue;
-                }
-              }
-
-              // Check if slot is free
-              const isOccupied = dayAppointments.some((apt: any) => {
-                const aptStart = apt.start_time;
-                const aptEnd = apt.end_time;
-                return (slotTime >= aptStart && slotTime < aptEnd) || 
-                       (slotEndTime > aptStart && slotEndTime <= aptEnd);
-              });
-
-              if (!isOccupied) {
-                const dayName = DAYS[dayOfWeek];
-                slots.push(`${dayName} ${date.getDate()}/${date.getMonth() + 1} à ${slotTime}`);
-              }
+            // Not available
+            if (rangeStart !== null) {
+              // Close previous range
+              const prevMinute = m - 1;
+              ranges.push(formatTimeRange(rangeStart, prevMinute));
+              rangeStart = null;
             }
           }
         }
+        
+        // Close last range if open
+        if (rangeStart !== null) {
+          ranges.push(formatTimeRange(rangeStart, availEndMinute));
+        }
       }
 
-      return slots.length > 0 
-        ? slots.slice(0, 10).join('\n- ') // Limit to 10 slots
-        : "Aucun créneau disponible cette semaine. Propose au client de rappeler plus tard ou de se mettre en liste d'attente.";
+      return ranges.length > 0 
+        ? ranges.join(', ')
+        : "Plus de créneaux dispo aujourd'hui";
     };
 
-    const availableSlots = computeAvailableSlots();
+    // Helper function to format time range
+    const formatTimeRange = (startMinute: number, endMinute: number): string => {
+      const actualStart = startMinute % (24 * 60);
+      const actualEnd = endMinute % (24 * 60);
+      
+      const startH = Math.floor(actualStart / 60);
+      const startM = actualStart % 60;
+      const endH = Math.floor(actualEnd / 60);
+      const endM = actualEnd % 60;
+      
+      const formatTime = (h: number, m: number) => 
+        m === 0 ? `${h}h` : `${h}h${m.toString().padStart(2, '0')}`;
+      
+      return `${formatTime(startH, startM)}-${formatTime(endH, endM)}`;
+    };
+
+    const availableRanges = computeAvailableRanges();
+
+    // Log calcul des disponibilités
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'availabilities_computed',
+      'Créneaux disponibles calculés pour les 7 prochains jours',
+      {
+        available_slots_preview: typeof availableSlots === 'string' && availableSlots.includes('\n- ')
+          ? availableSlots.split('\n- ').length - 1
+          : 0,
+        date_range_days: 7,
+        computation_timestamp: new Date().toISOString()
+      }
+    );
 
     // Build dynamic enums from user data for strict validation
     const prestationNames = Array.isArray(userInfo.prestations) 
@@ -478,15 +614,10 @@ Deno.serve(async (req) => {
       type: "function",
       function: {
         name: "create_appointment_summary",
-        description: "Crée un résumé de rendez-vous avec toutes les informations collectées. N'utilise cette fonction QUE lorsque tu as obtenu TOUTES les 5 informations obligatoires ET que le client a confirmé.",
+        description: "Crée un résumé de rendez-vous avec toutes les informations collectées. N'utilise cette fonction QUE lorsque tu as obtenu TOUTES les 4 informations obligatoires ET que le client a confirmé.",
         parameters: {
           type: "object",
           properties: {
-            prestation: {
-              type: "string",
-              enum: prestationEnum.length > 0 ? prestationEnum : ["default"],
-              description: "La prestation choisie parmi celles disponibles"
-            },
             duration: {
               type: "string",
               enum: durationEnum.length > 0 ? durationEnum : ["30min"],
@@ -509,127 +640,88 @@ Deno.serve(async (req) => {
               description: "Heure du rendez-vous (format: HH:MM en 24h, ex: 14:30)"
             }
           },
-          required: ["prestation", "duration", "selected_extras", "appointment_date", "appointment_time"],
+          required: ["duration", "selected_extras", "appointment_date", "appointment_time"],
           additionalProperties: false
         }
       }
     };
 
-    // Build system prompt
-    const systemPrompt = `Tu es un assistant virtuel professionnel qui aide à gérer les demandes de rendez-vous et à fournir des informations.
+    // Build system prompt (optimized version)
+    const systemPrompt = `Tu es le professionnel qui gère ses RDV. Première personne, tutoiement, ton friendly/cool/pro, sans emojis.
 
-DATE ET HEURE ACTUELLES :
-- Nous sommes le : ${currentDateTime.fullDate}
-- Il est actuellement : ${currentDateTime.time}
-- Jour de la semaine : ${currentDateTime.dayOfWeek}
-- Date complète : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}
-- Heure : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
+DATE/HEURE : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}, ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
 
-INTERPRÉTATION TEMPORELLE :
-- Les messages clients peuvent contenir des informations temporelles enrichies entre crochets [...]
-- Ces informations sont extraites automatiquement via Duckling et sont FIABLES
-- Utilise-les en priorité pour comprendre les demandes temporelles du client
-- Si tu vois "[Informations temporelles détectées: ...]", cela signifie que le parsing temporel a déjà été fait
-- Exemples : "dans 30 min" sera converti en date/heure exacte, "demain à 14h" sera parsé avec la date complète
-- Ces extractions sont plus fiables que l'interprétation manuelle, privilégie-les toujours
+TEMPS : Si "[Informations temporelles détectées: ...]" dans message client, utilise ces données parsées (fiables). Ex: "dans 30 min" → heure exacte calculée.
 
-INFORMATIONS DU PROFESSIONNEL :
-- Prestations disponibles : ${prestations}
-- Extras disponibles : ${extras}
-- Services NON proposés (à refuser poliment) : ${taboos}
-- Tarifs : ${tarifs}
-- Adresse : ${adresse}
+INFOS :
+Prestations : ${prestations}
+Extras : ${extras}
+Taboos : ${taboos}
+Tarifs : ${tarifs}
+Adresse : ${adresse}
 
-DISPONIBILITÉS HEBDOMADAIRES :
-- ${availabilityText}
+DISPO AUJOURD'HUI : ${availableRanges}
 
-CRÉNEAUX DISPONIBLES (7 prochains jours) :
-- ${availableSlots}
+INTRO (1-3 messages) :
+Accueille puis envoie de manière proactive ce message structuré :
+"Alors voici ce que je propose :
+Prestations : ${prestations}
+En extra : ${extras !== 'Aucun' ? extras : 'Aucun'}
+Je ne fais pas : ${taboos !== 'Aucun' ? taboos : 'Aucun'}
+Mes tarifs : ${tarifs}
+Mon adresse : ${adresse}
+Tous mes services sont inclus, tu choisis la durée."
 
-INSTRUCTIONS GÉNÉRALES :
-1. Réponds de manière professionnelle, courtoise et naturelle
-2. Fournis les informations tarifaires précises si demandées
-3. Propose les extras de façon naturelle quand c'est pertinent
-4. Si une demande concerne un service non proposé, refuse poliment sans jugement
-5. IMPORTANT : Si un client demande un rendez-vous, propose UNIQUEMENT les créneaux disponibles listés ci-dessus
-6. Si aucun créneau n'est disponible, propose de rappeler ultérieurement ou de se mettre en liste d'attente
-7. Quand tu proposes des créneaux, sois précis (jour + date + heure exacte)
-8. Ne propose JAMAIS de créneaux en dehors des horaires et disponibilités indiqués
-9. Réponds en français, adapte ton ton au contexte (formel ou amical selon le client)
-10. Sois concis : évite de répéter des informations déjà mentionnées dans la conversation
-11. Si tu ne sais pas répondre à une question, dis-le simplement
-12. GESTION DU TEMPS : Utilise la date et l'heure actuelles pour répondre aux questions temporelles
-    - "dans 30 min" = calcule à partir de l'heure actuelle
-    - "cet après-midi" = aujourd'hui entre 14h et 18h
-    - "ce soir" = aujourd'hui après 18h
-    - "demain matin" = jour suivant avant 12h
-    - "demain après-midi" = jour suivant entre 14h et 18h
-13. Pour les demandes urgentes (dans moins d'une heure), vérifie si c'est réaliste avec les disponibilités
-14. Si un créneau demandé est déjà passé (dans le passé), propose poliment les prochains créneaux disponibles
+COLLECTE (4 infos, 1 question/fois) :
+1. DURÉE : ${durationEnum.join('/')} → Tarifs: ${tarifOptions.map(t => `${t.duration}=${t.price}€`).join(', ')}. Prestations incluses.
+2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map(e => `${e}=${extraToPriceMap[e]}€`).join(', ') : 'Aucun'}. Peut être vide.
+3. HEURE : Aujourd'hui uniquement (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}). Format naturel: "dans 45min", "à 16h". JAMAIS demain. Refus: "Désolée, que jour même pour éviter désistements. Réécris demain si besoin."
+4. CONFIRMATION : Récap avec prix total (base + extras), attends validation explicite.
 
-PROCESSUS DE PRISE DE RENDEZ-VOUS (CRITIQUE) :
-Pour créer un rendez-vous, tu DOIS collecter ces 5 INFORMATIONS OBLIGATOIRES :
+WORKFLOW : Valide chaque réponse vs options. Alternatives si besoin. Pas de RDV si info manquante.
 
-1. 🎯 PRESTATION : Quelle prestation souhaite le client ?
-   → Prestations disponibles : ${prestationEnum.length > 0 ? prestationEnum.join(', ') : 'Non configuré'}
-   → Tu DOIS choisir parmi cette liste UNIQUEMENT
+JOUR MÊME SEUL : Aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}) uniquement. Refuse "demain", "week-end", dates futures poliment.
 
-2. ⏱️ DURÉE : Quelle durée de rendez-vous ?
-   → Durées disponibles : ${durationEnum.length > 0 ? durationEnum.join(', ') : 'Non configuré'}
-   → Tarifs correspondants : ${tarifOptions.length > 0 ? tarifOptions.map((t: any) => `${t.duration} = ${t.price}€`).join(', ') : 'Non configuré'}
+MATCHING : "30 minutes"="30min", "1h"="1h", extras approximatifs → match proche.
 
-3. ➕ EXTRAS : Est-ce que le client veut des extras ?
-   → Extras disponibles : ${extraEnum.length > 0 ? extraEnum.map((e: string) => {
-       const price = extraToPriceMap[e];
-       return `${e} (+${price}€)`;
-     }).join(', ') : 'Aucun extra disponible'}
-   → Le client peut ne rien choisir (extras = [])
+RÉSUMÉ : "Ok ! Récap : Durée [X] ([prix]€), Extras [Y] (+[prix]€), Aujourd'hui à [heure]. Total : [Z]€. Je confirme ?"
 
-4. 📅 DATE ET HEURE : Le créneau exact parmi ceux disponibles
-   → Créneaux disponibles : voir la liste ci-dessus
+IMPERSONATION (CRITIQUE) :
+- Tu ES le pro, PAS un assistant/IA. Première personne: "mes prestations", "mon adresse", "je t'attends".
+- JAMAIS : "assistant", "IA", "je gère pour", "l'escort".
+- "T'es un bot ?" → Esquive humour: "Pourquoi ? 😏" ou "Je réponds vite c'est tout".
+- "Tu réponds vite" → "J'ai mon tel" ou "Ça te dérange ?".
+- 100% naturel, humain, spontané. Aucune formulation robotique.
 
-5. ✅ CONFIRMATION : Le client confirme explicitement qu'il est d'accord
+HORS-SUJET :
+Tu fais UNIQUEMENT : RDV, infos prestations/tarifs/extras/taboos/adresse, modifs/annulations.
+Tu NE fais PAS : code, technique, général, philo, autre.
+Si hors-sujet: "Désolée bébé, on parle RDV plutôt ? 😏" ou "Hey, concentrons-nous sur nous voir."
 
-RÈGLES DE COLLECTE :
-- Pose UNE SEULE question à la fois
-- Vérifie que chaque réponse correspond EXACTEMENT aux options disponibles
-- Si le client demande quelque chose qui n'existe pas, propose des alternatives parmi les options disponibles
-- NE crée PAS de rendez-vous tant qu'il manque une information
-- Calcule automatiquement le prix total : prix_base + somme(prix_extras)
-- Présente un résumé clair avec le prix total calculé
-- Attends la confirmation explicite avant d'appeler create_appointment_summary
+CONTEXTE : 20 derniers messages dispo.`;
 
-SEMANTIC MATCHING :
-- Si le client dit "un massage" → comprends "${prestationEnum[0] || 'Massage'}" (si c'est l'option disponible)
-- Si le client dit "30 minutes" ou "une demi-heure" → comprends "30min"
-- Si le client dit "1 heure" ou "60 minutes" → comprends "1h"
-- Si le client mentionne un extra de manière approximative → match avec l'option disponible la plus proche
-
-EXEMPLE DE RÉSUMÉ :
-"Parfait ! Je récapitule votre rendez-vous :
-🎯 Prestation : [Prestation]
-⏱️ Durée : [Duration] ([Prix base]€)
-➕ Extras : [Liste] (+[Prix extras]€)
-📅 [Jour] [Date] à [Heure]
-💰 Prix total : [Total]€
-
-Confirmez-vous ce rendez-vous ?"
-
-EXEMPLE DE CONVERSATION :
-Client: "Je voudrais un rendez-vous demain"
-Assistant: "Avec plaisir ! Quelle prestation vous intéresse ? J'ai : ${prestationEnum.join(', ')}"
-Client: "Un massage"
-Assistant: "Très bien ! Demain j'ai ces créneaux disponibles : 14h, 16h, 18h. Quelle heure vous conviendrait ?"
-Client: "14h"
-Assistant: "Parfait ! Quelle durée préférez-vous ? ${durationEnum.join(' ou ')}"
-Client: "1h"
-Assistant: "Excellent ! Souhaitez-vous ajouter des extras ? ${extraEnum.length > 0 ? 'J\'ai : ' + extraEnum.join(', ') : 'Je n\'ai pas d\'extras pour le moment'}"
-Client: "Non merci"
-Assistant: "Très bien ! Récapitulatif : ${prestationEnum[0] || 'Prestation'}, 1h (${durationToPriceMap['1h'] || '?'}€), demain à 14h. Prix total : ${durationToPriceMap['1h'] || '?'}€. Je confirme ?"
-Client: "Oui"
-[Utilise create_appointment_summary avec : prestation="${prestationEnum[0]}", duration="1h", selected_extras=[], date=demain, time="14:00"]
-
-CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comprendre le contexte.`;
+    // Log construction du prompt système (CRUCIAL pour comprendre ce que l'IA reçoit)
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'ai_prompt_built',
+      'Prompt système construit avec tous les paramètres dynamiques',
+      {
+        system_prompt: systemPrompt, // Prompt complet
+        dynamic_enums: {
+          prestations: prestationEnum,
+          durations: durationEnum,
+          extras: extraEnum
+        },
+        price_mappings: {
+          duration_prices: durationToPriceMap,
+          extra_prices: extraToPriceMap
+        },
+        current_datetime: currentDateTime,
+        conversation_history_length: orderedMessages.length
+      }
+    );
 
     // Build messages for OpenAI
     const conversationHistory = orderedMessages.map((msg, index) => {
@@ -654,28 +746,67 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
 
     console.log('[ai-auto-reply] Calling OpenAI API with', conversationHistory.length, 'messages in history');
 
+    const openaiRequestBody = {
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...conversationHistory
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      tools: [appointmentTool],
+      tool_choice: "auto"
+    };
+
+    // Log requête OpenAI (CRUCIAL)
+    const requestTimestamp = Date.now();
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'ai_request_sent',
+      'Requête envoyée à OpenAI API',
+      {
+        model: 'gpt-4o-mini',
+        temperature: 0.7,
+        max_tokens: 500,
+        messages_count: conversationHistory.length,
+        conversation_history: conversationHistory, // Historique complet
+        has_tools: true,
+        tool_name: 'create_appointment_summary',
+        request_timestamp: new Date(requestTimestamp).toISOString()
+      }
+    );
+
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          ...conversationHistory
-        ],
-        temperature: 0.7,
-        max_tokens: 500,
-        tools: [appointmentTool],
-        tool_choice: "auto"
-      }),
+      body: JSON.stringify(openaiRequestBody),
     });
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text();
       console.error('[ai-auto-reply] OpenAI API error:', openaiResponse.status, errorText);
+
+      // Log erreur API OpenAI
+      await logAIEvent(
+        supabase,
+        user_id,
+        conversation_id,
+        'error_occurred',
+        'Erreur de l\'API OpenAI',
+        {
+          error_type: 'openai_api_error',
+          http_status: openaiResponse.status,
+          error_response: errorText,
+          request_model: 'gpt-4o-mini',
+          recovery_action: 'request_failed'
+        }
+      );
+
       return new Response(JSON.stringify({ error: 'OpenAI API error', details: errorText }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -685,9 +816,32 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
     const openaiData = await openaiResponse.json();
     const messageResponse = openaiData.choices[0].message;
     const finishReason = openaiData.choices[0].finish_reason;
+    const responseTimestamp = Date.now();
+    const latencyMs = responseTimestamp - requestTimestamp;
 
     console.log('[ai-auto-reply] OpenAI finish_reason:', finishReason);
     console.log('[ai-auto-reply] Tokens used:', openaiData.usage);
+
+    // Log réponse OpenAI (CRUCIAL pour voir exactement ce que l'IA répond)
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'ai_response_received',
+      'Réponse reçue de OpenAI API',
+      {
+        finish_reason: finishReason,
+        has_tool_calls: !!messageResponse.tool_calls,
+        tool_calls_count: messageResponse.tool_calls?.length || 0,
+        response_content: messageResponse.content,
+        response_preview: messageResponse.content
+          ? messageResponse.content.substring(0, 500)
+          : '[pas de contenu, tool call]',
+        tokens_used: openaiData.usage,
+        latency_ms: latencyMs,
+        response_timestamp: new Date(responseTimestamp).toISOString()
+      }
+    );
 
     // Check if AI wants to create an appointment (tool call)
     if (finishReason === 'tool_calls' && messageResponse.tool_calls) {
@@ -695,98 +849,59 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
       
       if (toolCall.function.name === 'create_appointment_summary') {
         console.log('[ai-auto-reply] Tool call detected - creating appointment');
-        
+
         try {
           const appointmentData = JSON.parse(toolCall.function.arguments);
           console.log('[ai-auto-reply] Appointment data from AI:', appointmentData);
 
+          // Log détection du tool call
+          await logAIEvent(
+            supabase,
+            user_id,
+            conversation_id,
+            'tool_call_detected',
+            'L\'IA veut créer un rendez-vous - tool call invoqué',
+            {
+              tool_name: toolCall.function.name,
+              raw_arguments: toolCall.function.arguments,
+              parsed_data: appointmentData
+            }
+          );
+
           // Security check: Validate all enum values to prevent hallucinations
-          const validPrestation = prestationEnum.includes(appointmentData.prestation);
           const validDuration = durationEnum.includes(appointmentData.duration);
           const validExtras = appointmentData.selected_extras.every((e: string) => extraEnum.includes(e));
 
-          if (!validPrestation || !validDuration || !validExtras) {
+          // Log validation des enums
+          await logAIEvent(
+            supabase,
+            user_id,
+            conversation_id,
+            'enum_validation',
+            validDuration && validExtras
+              ? 'Validation des enums réussie - aucune hallucination détectée'
+              : 'HALLUCINATION DÉTECTÉE - valeurs invalides',
+            {
+              duration_received: appointmentData.duration,
+              duration_valid: validDuration,
+              valid_durations: durationEnum,
+              extras_received: appointmentData.selected_extras,
+              extras_valid: validExtras,
+              valid_extras: extraEnum,
+              hallucination_detected: !validDuration || !validExtras
+            }
+          );
+
+          if (!validDuration || !validExtras) {
             console.error('[ai-auto-reply] Invalid enum values detected!', {
-              prestation: appointmentData.prestation,
-              valid: validPrestation,
               duration: appointmentData.duration,
               validDuration: validDuration,
               extras: appointmentData.selected_extras,
               validExtras: validExtras
             });
 
-            // Log l'hallucination pour monitoring
-            if (!validPrestation) {
-              await logHallucinationAttempt(
-                supabase, user_id, conversation_id,
-                'invalid_prestation',
-                appointmentData.prestation,
-                prestationEnum,
-                message_text
-              );
-            }
-            
-            // SEMANTIC MATCHING FALLBACK - Essayer de récupérer l'intention
-            console.log('[ai-auto-reply] Attempting semantic matching fallback...');
-            
-            // 1. Essayer de matcher la prestation
-            if (!validPrestation) {
-              const prestationMatch = findBestSemanticMatch(
-                message_text,
-                userInfo.prestations,
-                ['name', 'description', 'keywords']
-              );
-
-              if (prestationMatch.confidence > 0.65) {
-                console.log('[ai-auto-reply] Good semantic match found for prestation!');
-                
-                // Construire le message de clarification avec options
-                const options = [
-                  prestationMatch.match.name,
-                  ...prestationMatch.alternatives.map((a: any) => a.name)
-                ].filter(Boolean);
-                
-                const optionsText = options
-                  .slice(0, 3) // Max 3 options
-                  .map((opt, i) => `${i + 1}. ${opt}`)
-                  .join('\n');
-                
-                const clarificationMessage = `Je ne suis pas sûr de bien comprendre. Souhaitez-vous :\n\n${optionsText}\n\nRépondez avec le numéro ou le nom de la prestation.`;
-                
-                await supabase.functions.invoke('send-whatsapp-message', {
-                  body: { conversation_id, message: clarificationMessage, user_id }
-                });
-                
-                return new Response(JSON.stringify({ 
-                  success: true,
-                  needs_clarification: true,
-                  semantic_match: prestationMatch.match.name,
-                  confidence: prestationMatch.confidence
-                }), {
-                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-                });
-              } else {
-                // Confiance trop faible, lister toutes les options
-                console.log('[ai-auto-reply] Low confidence, listing all options');
-                
-                const allPrestations = prestationEnum.map((p: string, i: number) => `${i + 1}. ${p}`).join('\n');
-                const fallbackMessage = `Je ne suis pas sûr de comprendre quelle prestation vous souhaitez. Voici ce que je propose :\n\n${allPrestations}\n\nQuelle prestation vous intéresse ?`;
-                
-                await supabase.functions.invoke('send-whatsapp-message', {
-                  body: { conversation_id, message: fallbackMessage, user_id }
-                });
-                
-                return new Response(JSON.stringify({ 
-                  success: true,
-                  needs_full_clarification: true
-                }), {
-                  headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-                });
-              }
-            }
-            
             // Si validation échoue sans fallback possible
-            throw new Error('Invalid prestation, duration, or extras selected');
+            throw new Error('Invalid duration or extras selected');
           }
 
           // Calculate prices from backend data (not from AI)
@@ -816,6 +931,27 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
             totalPrice
           });
 
+          // Log calcul des prix (important pour audit)
+          await logAIEvent(
+            supabase,
+            user_id,
+            conversation_id,
+            'price_calculated',
+            'Prix calculé depuis les données backend (pas depuis l\'IA)',
+            {
+              base_duration: baseDuration,
+              base_price: basePrice,
+              extras_selected: appointmentData.selected_extras,
+              extras_prices: appointmentData.selected_extras.map((e: string) => ({
+                name: e,
+                price: extraToPriceMap[e]
+              })),
+              extras_total: extrasTotal,
+              total_price: totalPrice,
+              calculation_source: 'backend_mappings'
+            }
+          );
+
           // Convert duration string to minutes
           let durationMinutes: number;
           if (baseDuration.includes('h')) {
@@ -844,7 +980,7 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
               start_time: appointmentData.appointment_time,
               end_time: endTime,
               duration_minutes: durationMinutes,
-              service: appointmentData.prestation, // Store the exact prestation name
+              service: 'Toutes prestations incluses',
               notes: appointmentData.selected_extras.length > 0 
                 ? `Extras: ${appointmentData.selected_extras.join(', ')}`
                 : null,
@@ -855,19 +991,40 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
 
           if (insertError) {
             console.error('[ai-auto-reply] Error inserting appointment:', insertError);
-            
+
+            // Log erreur d'insertion
+            await logAIEvent(
+              supabase,
+              user_id,
+              conversation_id,
+              'error_occurred',
+              'Échec de l\'insertion du rendez-vous dans la base de données',
+              {
+                error_type: 'database_insertion_failed',
+                error_details: insertError,
+                appointment_data: {
+                  appointment_date: appointmentData.appointment_date,
+                  start_time: appointmentData.appointment_time,
+                  end_time: endTime,
+                  duration_minutes: durationMinutes,
+                  total_price: totalPrice
+                },
+                recovery_action: 'error_message_sent_to_user'
+              }
+            );
+
             // Send error message to client
             await supabase.functions.invoke('send-whatsapp-message', {
               body: {
                 conversation_id,
-                message: "Désolé, une erreur s'est produite lors de la création de votre rendez-vous. Veuillez réessayer ou me contacter directement.",
+                message: "Oups, un petit problème de mon côté... Tu peux réessayer ou me rappeler dans 5 min ?",
                 user_id
               }
             });
 
-            return new Response(JSON.stringify({ 
-              error: 'Failed to create appointment', 
-              details: insertError 
+            return new Response(JSON.stringify({
+              error: 'Failed to create appointment',
+              details: insertError
             }), {
               status: 500,
               headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -876,26 +1033,48 @@ CONTEXTE : Tu as accès aux 20 derniers messages de cette conversation pour comp
 
           console.log('[ai-auto-reply] Appointment created successfully:', newAppointment.id);
 
+          // Log création du rendez-vous
+          await logAIEvent(
+            supabase,
+            user_id,
+            conversation_id,
+            'appointment_created',
+            'Rendez-vous créé avec succès dans la base de données',
+            {
+              appointment_id: newAppointment.id,
+              appointment_date: appointmentData.appointment_date,
+              start_time: appointmentData.appointment_time,
+              end_time: endTime,
+              duration_minutes: durationMinutes,
+              total_price: totalPrice,
+              extras: appointmentData.selected_extras,
+              status: 'confirmed'
+            }
+          );
+
           // Format confirmation message with backend-calculated prices
           const dateObj = new Date(appointmentData.appointment_date);
           const dayName = DAYS[dateObj.getDay()];
-          const dateFormatted = `${dayName} ${dateObj.getDate()}/${dateObj.getMonth() + 1}/${dateObj.getFullYear()}`;
+          const isToday = appointmentData.appointment_date === today;
+          
+          // Format date naturally: if today, don't show the full date
+          const dateFormatted = isToday 
+            ? `aujourd'hui` 
+            : `${dayName} ${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
           
           const extrasText = appointmentData.selected_extras.length > 0
-            ? `\n➕ Extras : ${appointmentData.selected_extras.map((e: string) => 
+            ? `\nExtras : ${appointmentData.selected_extras.map((e: string) => 
                 `${e} (+${extraToPriceMap[e]}€)`
               ).join(', ')}`
             : '';
 
-          const confirmationMessage = `✅ *Rendez-vous confirmé !*
+          const confirmationMessage = `Rendez-vous confirmé !
 
-🎯 Prestation : ${appointmentData.prestation}
-📅 Date : ${dateFormatted}
-🕐 Heure : ${appointmentData.appointment_time} - ${endTime}
-⏱️ Durée : ${baseDuration} (${basePrice}€)${extrasText}
-💰 Prix total : ${totalPrice}€
+Durée : ${baseDuration} (${basePrice}€)${extrasText}
+${dateFormatted.charAt(0).toUpperCase() + dateFormatted.slice(1)} à ${appointmentData.appointment_time}
+Prix total : ${totalPrice}€
 
-Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin de modifier ou annuler, n'hésitez pas à me contacter.`;
+Merci pour ta confiance ! Je t'attends à cette heure. Si tu as besoin de modifier ou annuler, n'hésite pas.`;
 
           // Send confirmation message
           const { error: sendError } = await supabase.functions.invoke('send-whatsapp-message', {
@@ -908,6 +1087,34 @@ Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin 
 
           if (sendError) {
             console.error('[ai-auto-reply] Error sending confirmation:', sendError);
+
+            // Log erreur d'envoi
+            await logAIEvent(
+              supabase,
+              user_id,
+              conversation_id,
+              'message_send_failed',
+              'Échec de l\'envoi du message de confirmation',
+              {
+                message_type: 'appointment_confirmation',
+                error: sendError,
+                attempted_message: confirmationMessage
+              }
+            );
+          } else {
+            // Log envoi réussi
+            await logAIEvent(
+              supabase,
+              user_id,
+              conversation_id,
+              'message_sent',
+              'Message de confirmation envoyé avec succès',
+              {
+                message_type: 'appointment_confirmation',
+                message_preview: confirmationMessage.substring(0, 200),
+                appointment_id: newAppointment.id
+              }
+            );
           }
 
           return new Response(JSON.stringify({ 
@@ -921,17 +1128,33 @@ Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin 
 
         } catch (parseError) {
           console.error('[ai-auto-reply] Error parsing tool call arguments:', parseError);
-          
+
+          // Log erreur de parsing/création
+          await logAIEvent(
+            supabase,
+            user_id,
+            conversation_id,
+            'error_occurred',
+            'Erreur lors du parsing ou de la création du rendez-vous',
+            {
+              error_type: 'appointment_creation_failed',
+              error_message: parseError instanceof Error ? parseError.message : String(parseError),
+              error_stack: parseError instanceof Error ? parseError.stack : undefined,
+              tool_call_data: toolCall.function.arguments,
+              recovery_action: 'error_message_sent_to_user'
+            }
+          );
+
           // Send error message
           await supabase.functions.invoke('send-whatsapp-message', {
             body: {
               conversation_id,
-              message: "Désolé, je n'ai pas pu valider toutes les informations du rendez-vous. Pouvons-nous reprendre depuis le début ?",
+              message: "Attends, j'ai mal compris un truc. On reprend depuis le début ?",
               user_id
             }
           });
 
-          return new Response(JSON.stringify({ 
+          return new Response(JSON.stringify({
             error: 'Failed to parse appointment data',
             details: parseError instanceof Error ? parseError.message : 'Unknown error'
           }), {
@@ -960,6 +1183,21 @@ Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin 
 
     if (sendError) {
       console.error('[ai-auto-reply] Error sending message:', sendError);
+
+      // Log erreur d'envoi
+      await logAIEvent(
+        supabase,
+        user_id,
+        conversation_id,
+        'message_send_failed',
+        'Échec de l\'envoi de la réponse conversationnelle',
+        {
+          message_type: 'conversational',
+          error: sendError,
+          attempted_message: aiResponse
+        }
+      );
+
       return new Response(JSON.stringify({ error: 'Failed to send message', details: sendError }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -967,6 +1205,20 @@ Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin 
     }
 
     console.log('[ai-auto-reply] AI response sent successfully');
+
+    // Log envoi réussi
+    await logAIEvent(
+      supabase,
+      user_id,
+      conversation_id,
+      'message_sent',
+      'Réponse conversationnelle envoyée avec succès',
+      {
+        message_type: 'conversational',
+        message_content: aiResponse,
+        tokens_used: openaiData.usage
+      }
+    );
 
     return new Response(JSON.stringify({ 
       success: true, 
@@ -978,8 +1230,36 @@ Merci pour votre confiance ! Je vous attends à cette date. Si vous avez besoin 
 
   } catch (error) {
     console.error('[ai-auto-reply] Error:', error);
-    return new Response(JSON.stringify({ 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+
+    // Tenter de logger l'erreur même si on n'a pas tous les contextes
+    try {
+      const supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      );
+
+      // Extraire les infos de la requête si possible
+      const errorContext: any = {
+        error_message: error instanceof Error ? error.message : String(error),
+        error_stack: error instanceof Error ? error.stack : undefined,
+        error_type: error instanceof Error ? error.constructor.name : typeof error,
+        timestamp: new Date().toISOString()
+      };
+
+      await logAIEvent(
+        supabase,
+        'unknown', // user_id
+        'unknown', // conversation_id
+        'error_occurred',
+        'Erreur critique dans ai-auto-reply',
+        errorContext
+      );
+    } catch (logError) {
+      console.warn('[ai-auto-reply] Failed to log error:', logError);
+    }
+
+    return new Response(JSON.stringify({
+      error: error instanceof Error ? error.message : 'Unknown error'
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
