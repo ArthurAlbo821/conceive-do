@@ -33,6 +33,10 @@ export interface UserInformations {
   taboos: Taboo[];
   tarifs: Tarif[];
   adresse: string;
+  door_code?: string;
+  floor?: string;
+  elevator_info?: string;
+  access_instructions?: string;
 }
 
 export const useUserInformations = () => {
@@ -63,6 +67,10 @@ export const useUserInformations = () => {
           taboos: [],
           tarifs: [],
           adresse: "",
+          door_code: "",
+          floor: "",
+          elevator_info: "",
+          access_instructions: "",
         } as UserInformations;
       }
 
@@ -75,6 +83,10 @@ export const useUserInformations = () => {
         taboos: (data.taboos as unknown as Taboo[]) || [],
         tarifs: (data.tarifs as unknown as Tarif[]) || [],
         adresse: data.adresse || "",
+        door_code: data.door_code || "",
+        floor: data.floor || "",
+        elevator_info: data.elevator_info || "",
+        access_instructions: data.access_instructions || "",
       };
     },
   });
@@ -94,6 +106,10 @@ export const useUserInformations = () => {
           taboos: data.taboos as unknown as Json,
           tarifs: data.tarifs as unknown as Json,
           adresse: data.adresse || "",
+          door_code: data.door_code || "",
+          floor: data.floor || "",
+          elevator_info: data.elevator_info || "",
+          access_instructions: data.access_instructions || "",
         },
         {
           onConflict: "user_id",

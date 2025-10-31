@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { format } from "date-fns";
+import { format, isToday } from "date-fns";
 import { fr } from "date-fns/locale";
-import { Calendar as CalendarIcon, Clock, User, Phone, Plus } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, User, Phone, Plus, Bell, CheckCircle2, Send } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,9 +41,11 @@ const STATUS_LABELS = {
 };
 
 const Appointments = () => {
+  const { toast } = useToast();
   const { appointments, isLoading, addAppointment, updateAppointment, deleteAppointment } =
     useAppointments();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [sendingAccessInfo, setSendingAccessInfo] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [formData, setFormData] = useState({
     contact_name: "",
@@ -51,6 +55,63 @@ const Appointments = () => {
     service: "",
     notes: "",
   });
+
+  const handleSendAccessInfo = async (appointmentId: string) => {
+    setSendingAccessInfo(appointmentId);
+    try {
+      const { data, error } = await supabase.functions.invoke("send-access-info", {
+        body: { appointment_id: appointmentId },
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        toast({
+          title: "Informations envoyées",
+          description: "Les informations d'accès ont été envoyées au client avec succès.",
+        });
+        // Refresh appointments to show updated status
+        window.location.reload();
+      } else {
+        throw new Error(data?.error || "Échec de l'envoi");
+      }
+    } catch (error: any) {
+      console.error("Error sending access info:", error);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: error.message || "Impossible d'envoyer les informations d'accès",
+      });
+    } finally {
+      setSendingAccessInfo(null);
+    }
+  };
+
+  const handleCompleteAppointment = async (appointmentId: string) => {
+    try {
+      const { data, error } = await supabase.rpc("complete_appointment_and_unpin", {
+        p_appointment_id: appointmentId,
+      });
+
+      if (error) throw error;
+
+      if (data?.success) {
+        toast({
+          title: "Rendez-vous terminé",
+          description: "Le rendez-vous a été marqué comme terminé et la conversation a été dépinglée.",
+        });
+        // Refresh appointments
+        window.location.reload();
+      }
+    } catch (error: any) {
+      console.error("Error completing appointment:", error);
+      toast({
+        variant: "destructive",
+        title: "Erreur",
+        description: error.message || "Impossible de terminer le rendez-vous",
+      });
+    }
+  };
 
   const handleSubmit = () => {
     if (!selectedDate) return;
@@ -103,24 +164,44 @@ const Appointments = () => {
       return dateB.getTime() - dateA.getTime();
     });
 
-  const AppointmentCard = ({ appointment }: { appointment: Appointment }) => (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex justify-between items-start mb-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <User className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium">{appointment.contact_name}</span>
+  const AppointmentCard = ({ appointment }: { appointment: Appointment }) => {
+    const appointmentDate = new Date(appointment.appointment_date);
+    const isTodayAppointment = isToday(appointmentDate);
+    const clientArrived = (appointment as any).client_arrived;
+    const providerReady = (appointment as any).provider_ready_to_receive;
+
+    return (
+      <Card className={isTodayAppointment && appointment.status === "confirmed" ? "border-blue-300" : ""}>
+        <CardContent className="p-4">
+          <div className="flex justify-between items-start mb-3">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{appointment.contact_name}</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Phone className="h-3 w-3" />
+                <span>{appointment.contact_phone}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Phone className="h-3 w-3" />
-              <span>{appointment.contact_phone}</span>
+            <div className="flex flex-col gap-2 items-end">
+              <Badge className={STATUS_COLORS[appointment.status]}>
+                {STATUS_LABELS[appointment.status]}
+              </Badge>
+              {isTodayAppointment && appointment.status === "confirmed" && clientArrived && (
+                <Badge className="bg-orange-500/10 text-orange-600 border-orange-500/20">
+                  <Bell className="h-3 w-3 mr-1" />
+                  Client arrivé
+                </Badge>
+              )}
+              {isTodayAppointment && appointment.status === "confirmed" && providerReady && (
+                <Badge className="bg-green-500/10 text-green-600 border-green-500/20">
+                  <CheckCircle2 className="h-3 w-3 mr-1" />
+                  Infos envoyées
+                </Badge>
+              )}
             </div>
           </div>
-          <Badge className={STATUS_COLORS[appointment.status]}>
-            {STATUS_LABELS[appointment.status]}
-          </Badge>
-        </div>
 
         <div className="space-y-2 text-sm">
           <div className="flex items-center gap-2">
@@ -143,46 +224,66 @@ const Appointments = () => {
           )}
         </div>
 
-        <div className="flex gap-2 mt-4">
-          {appointment.status === "pending" && (
+          <div className="flex flex-wrap gap-2 mt-4">
+            {appointment.status === "pending" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateAppointment({ id: appointment.id, status: "confirmed" })}
+              >
+                Confirmer
+              </Button>
+            )}
+
+            {/* Prêt à Recevoir button - only show for today's confirmed appointments where client has arrived */}
+            {isTodayAppointment &&
+              appointment.status === "confirmed" &&
+              clientArrived &&
+              !providerReady && (
+                <Button
+                  size="sm"
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={() => handleSendAccessInfo(appointment.id)}
+                  disabled={sendingAccessInfo === appointment.id}
+                >
+                  <Send className="h-3 w-3 mr-1" />
+                  {sendingAccessInfo === appointment.id ? "Envoi..." : "Prêt à Recevoir"}
+                </Button>
+              )}
+
+            {appointment.status !== "cancelled" && appointment.status !== "completed" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateAppointment({ id: appointment.id, status: "cancelled" })}
+              >
+                Annuler
+              </Button>
+            )}
+
+            {appointment.status === "confirmed" && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleCompleteAppointment(appointment.id)}
+              >
+                Terminer
+              </Button>
+            )}
+
             <Button
               size="sm"
-              variant="outline"
-              onClick={() => updateAppointment({ id: appointment.id, status: "confirmed" })}
+              variant="ghost"
+              className="text-destructive"
+              onClick={() => deleteAppointment(appointment.id)}
             >
-              Confirmer
+              Supprimer
             </Button>
-          )}
-          {appointment.status !== "cancelled" && appointment.status !== "completed" && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => updateAppointment({ id: appointment.id, status: "cancelled" })}
-            >
-              Annuler
-            </Button>
-          )}
-          {appointment.status === "confirmed" && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => updateAppointment({ id: appointment.id, status: "completed" })}
-            >
-              Marquer terminé
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="text-destructive"
-            onClick={() => deleteAppointment(appointment.id)}
-          >
-            Supprimer
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   if (isLoading) {
     return (

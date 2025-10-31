@@ -2,6 +2,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { formatDistanceToNow } from "date-fns";
 import { fr } from "date-fns/locale";
+import { Clock, Pin } from "lucide-react";
 
 // Format phone number for display
 function formatPhoneNumber(phone: string): string {
@@ -26,6 +27,8 @@ interface Conversation {
   last_message_text: string | null;
   last_message_at: string | null;
   unread_count: number;
+  is_pinned?: boolean;
+  appointment_time?: string | null;
 }
 
 interface ConversationListProps {
@@ -47,12 +50,21 @@ export function ConversationList({
           onClick={() => onSelectConversation(conv.id)}
           className={`w-full p-4 text-left hover:bg-muted transition-colors border-b ${
             selectedConversationId === conv.id ? "bg-muted" : ""
-          }`}
+          } ${conv.is_pinned ? "bg-blue-50/50 border-l-4 border-l-blue-500" : ""}`}
         >
           <div className="flex justify-between items-start mb-1">
             <div className="flex-1 min-w-0">
-              <div className="font-semibold truncate">
-                {conv.contact_name || formatPhoneNumber(conv.contact_phone) || "Contact"}
+              <div className="flex items-center gap-2">
+                {conv.is_pinned && <Pin className="h-3 w-3 text-blue-600 flex-shrink-0" />}
+                <div className="font-semibold truncate">
+                  {conv.contact_name || formatPhoneNumber(conv.contact_phone) || "Contact"}
+                </div>
+                {conv.appointment_time && (
+                  <Badge variant="outline" className="flex items-center gap-1 text-xs flex-shrink-0 bg-blue-50 text-blue-700 border-blue-300">
+                    <Clock className="h-3 w-3" />
+                    {conv.appointment_time.substring(0, 5)}
+                  </Badge>
+                )}
               </div>
               {conv.contact_name && formatPhoneNumber(conv.contact_phone) && (
                 <div className="text-xs text-muted-foreground truncate">

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, X, FileText } from "lucide-react";
+import { Plus, X, FileText, Lock } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,12 @@ const informationsSchema = z.object({
   ),
 
   adresse: z.string().optional(),
+
+  // Access information fields
+  door_code: z.string().optional(),
+  floor: z.string().optional(),
+  elevator_info: z.string().optional(),
+  access_instructions: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof informationsSchema>;
@@ -66,6 +72,10 @@ const Informations = () => {
       taboos: [],
       tarifs: [],
       adresse: "",
+      door_code: "",
+      floor: "",
+      elevator_info: "",
+      access_instructions: "",
     },
   });
 
@@ -103,6 +113,10 @@ const Informations = () => {
       taboos: data.taboos.map((t) => ({ id: t.id, name: t.name })),
       tarifs: data.tarifs.map((t) => ({ id: t.id, duration: t.duration, price: t.price })),
       adresse: data.adresse || "",
+      door_code: data.door_code || "",
+      floor: data.floor || "",
+      elevator_info: data.elevator_info || "",
+      access_instructions: data.access_instructions || "",
     };
     saveInformations(formattedData);
   };
@@ -378,6 +392,90 @@ const Informations = () => {
                         </FormItem>
                       )}
                     />
+                  </CardContent>
+                </Card>
+
+                {/* Informations d'Accès (Sensibles) */}
+                <Card className="border-orange-200 bg-orange-50/50">
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <Lock className="h-5 w-5 text-orange-600" />
+                      <CardTitle className="text-orange-900">Informations d'Accès</CardTitle>
+                    </div>
+                    <CardDescription className="text-orange-700">
+                      Ces informations sensibles sont envoyées UNIQUEMENT aux clients avec rendez-vous confirmé aujourd'hui, et seulement après que vous ayez validé être prêt(e) à les recevoir.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="door_code"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input
+                              placeholder="Code d'entrée (ex: A1234)"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="floor"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input
+                              placeholder="Étage (ex: 3ème étage, Rez-de-chaussée)"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="elevator_info"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input
+                              placeholder="Informations ascenseur (ex: Au fond à gauche, Escalier B)"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="access_instructions"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Textarea
+                              placeholder="Instructions supplémentaires (ex: Porte au fond du couloir, sonnette avec mon nom)"
+                              className="min-h-[80px]"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="bg-orange-100 border border-orange-300 rounded-md p-3 text-sm text-orange-800">
+                      <p className="font-semibold mb-1">Sécurité :</p>
+                      <p>Ces informations ne sont JAMAIS utilisées dans la prise de rendez-vous. Elles seront envoyées uniquement lorsque vous cliquerez sur "Prêt à Recevoir" dans la section Rendez-vous.</p>
+                    </div>
                   </CardContent>
                 </Card>
 

@@ -17,6 +17,9 @@ export interface Appointment {
   notes?: string;
   created_at?: string;
   updated_at?: string;
+  client_arrived?: boolean;
+  client_arrival_detected_at?: string;
+  provider_ready_to_receive?: boolean;
 }
 
 export const useAppointments = () => {
