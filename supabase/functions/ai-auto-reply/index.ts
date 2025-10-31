@@ -673,10 +673,10 @@ Mon adresse : ${adresse}
 Tous mes services sont inclus, tu choisis la durée."
 
 COLLECTE (4 infos, 1 question/fois) :
-1. DURÉE : ${durationEnum.join('/')} → Tarifs: ${tarifOptions.map(t => `${t.duration}=${t.price}€`).join(', ')}. Prestations incluses.
-2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map(e => `${e}=${extraToPriceMap[e]}€`).join(', ') : 'Aucun'}. Peut être vide.
-3. HEURE : Aujourd'hui uniquement (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}). Format naturel: "dans 45min", "à 16h". JAMAIS demain. Refus: "Désolée, que jour même pour éviter désistements. Réécris demain si besoin."
-4. CONFIRMATION : Récap avec prix total (base + extras), attends validation explicite.
+1. DURÉE : ${durationEnum.join('/')} → ${tarifOptions.map(t => `${t.duration}=${t.price}€`).join(', ')}. Question: "Quelle durée ?"
+2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map(e => `${e}=${extraToPriceMap[e]}€`).join(', ') : 'Aucun'}. Question: "Tu veux l'extra ?" ou "Aucun extra ?"
+3. HEURE : Aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}) uniquement. Format: "dans 45min", "à 20h". Question: "À quelle heure ?" Si demain: "Désolée, que jour même."
+4. CONFIRMATION : Récap court + "Je confirme ?"
 
 WORKFLOW : Valide chaque réponse vs options. Alternatives si besoin. Pas de RDV si info manquante.
 
@@ -684,7 +684,14 @@ JOUR MÊME SEUL : Aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.da
 
 MATCHING : "30 minutes"="30min", "1h"="1h", extras approximatifs → match proche.
 
-RÉSUMÉ : "Ok ! Récap : Durée [X] ([prix]€), Extras [Y] (+[prix]€), Aujourd'hui à [heure]. Total : [Z]€. Je confirme ?"
+RÉSUMÉ : "Ok ! [Durée] ([prix]€) + [Extras] (+[prix]€) = [Total]€. Aujourd'hui [heure]. Je confirme ?"
+
+TON ULTRA-COURT :
+- Questions : max 8 mots. "Quelle durée ?", "Tu veux l'extra ?"
+- Pas de répétitions. Info déjà dite = ne la redis JAMAIS.
+- Pas de formules longues : "pour récapituler", "donc pour le rendez-vous", "souhaites-tu".
+- Direct comme SMS. Pas de politesse excessive.
+- Ex: ❌ "Pour récapituler, quelle durée souhaites-tu ?" → ✅ "Quelle durée ?"
 
 IMPERSONATION (CRITIQUE) :
 - Tu ES le pro, PAS un assistant/IA. Première personne: "mes prestations", "mon adresse", "je t'attends".
@@ -1063,18 +1070,16 @@ CONTEXTE : 20 derniers messages dispo.`;
             : `${dayName} ${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
           
           const extrasText = appointmentData.selected_extras.length > 0
-            ? `\nExtras : ${appointmentData.selected_extras.map((e: string) => 
-                `${e} (+${extraToPriceMap[e]}€)`
+            ? ` + ${appointmentData.selected_extras.map((e: string) => 
+                `${e} (${extraToPriceMap[e]}€)`
               ).join(', ')}`
             : '';
 
-          const confirmationMessage = `Rendez-vous confirmé !
+          const confirmationMessage = `✅ RDV confirmé !
+${baseDuration} (${basePrice}€)${extrasText} = ${totalPrice}€
+Aujourd'hui ${appointmentData.appointment_time}
 
-Durée : ${baseDuration} (${basePrice}€)${extrasText}
-${dateFormatted.charAt(0).toUpperCase() + dateFormatted.slice(1)} à ${appointmentData.appointment_time}
-Prix total : ${totalPrice}€
-
-Merci pour ta confiance ! Je t'attends à cette heure. Si tu as besoin de modifier ou annuler, n'hésite pas.`;
+À toute !`;
 
           // Send confirmation message
           const { error: sendError } = await supabase.functions.invoke('send-whatsapp-message', {
