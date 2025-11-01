@@ -5,6 +5,33 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
+
+// Timezone configuration - All users are in France
+const USER_TIMEZONE = 'Europe/Paris';
+
+// Helper function to convert UTC Date to France timezone
+function toFranceTime(utcDate: Date): Date {
+  // Use Intl API to get France time string
+  const franceTimeString = utcDate.toLocaleString('en-US', {
+    timeZone: USER_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
+  // Parse: "MM/DD/YYYY, HH:MM:SS" format from en-US locale
+  const [datePart, timePart] = franceTimeString.split(', ');
+  const [month, day, year] = datePart.split('/');
+  const [hour, minute, second] = timePart.split(':');
+
+  // Create date object representing France time (without timezone info)
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
+}
+
 // Duckling API configuration
 const DUCKLING_API_URL = 'https://duckling.wit.ai/parse';
 async function parseDucklingEntities(text, referenceTime) {
@@ -186,9 +213,10 @@ Deno.serve(async (req)=>{
       message_text,
       timestamp: new Date().toISOString()
     });
-    // Get current date for temporal parsing
-    const now = new Date();
-    // Parse temporal expressions with Duckling
+    // Get current date for temporal parsing (in France timezone)
+    const nowUTC = new Date();
+    const now = toFranceTime(nowUTC);
+    // Parse temporal expressions with Duckling (using France time)
     const ducklingEntities = await parseDucklingEntities(message_text, now);
     const enrichedMessage = enrichMessageWithDuckling(message_text, ducklingEntities);
     if (enrichedMessage !== message_text) {
@@ -228,16 +256,23 @@ Deno.serve(async (req)=>{
     }
     // Get availabilities
     const { data: availabilities, error: availError } = await supabase.from('availabilities').select('*').eq('user_id', user_id).eq('is_active', true).order('day_of_week, start_time');
-    // Get upcoming appointments (next 7 days)
-    const today = new Date().toISOString().split('T')[0];
-    const nextWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Get upcoming appointments (next 7 days) - using France timezone
+    const todayFrance = toFranceTime(new Date());
+    const today = todayFrance.toISOString().split('T')[0];
+    const nextWeekFrance = toFranceTime(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    const nextWeek = nextWeekFrance.toISOString().split('T')[0];
     const { data: appointments, error: apptError } = await supabase.from('appointments').select('*').eq('user_id', user_id).gte('appointment_date', today).lte('appointment_date', nextWeek).in('status', [
       'pending',
       'confirmed'
     ]).order('appointment_date, start_time');
     // Check if there's an appointment for today linked to this conversation
     const { data: todayAppointment } = await supabase.from('appointments').select('*').eq('conversation_id', conversation_id).eq('appointment_date', today).eq('status', 'confirmed').single();
+
+    // Determine AI mode: WAITING mode if RDV confirmed today, WORKFLOW mode otherwise
+    const hasConfirmedAppointmentToday = !!todayAppointment;
+
     console.log('[ai-auto-reply] Found', availabilities?.length || 0, 'availabilities and', appointments?.length || 0, 'upcoming appointments');
+    console.log('[ai-auto-reply] AI Mode:', hasConfirmedAppointmentToday ? 'WAITING (RDV confirmé aujourd\'hui)' : 'WORKFLOW (Pas de RDV)');
     // Log récupération des données utilisateur
     await logAIEvent(supabase, user_id, conversation_id, 'user_data_fetched', 'Données utilisateur chargées avec succès', {
       prestations_count: userInfo.prestations?.length || 0,
@@ -320,7 +355,8 @@ Deno.serve(async (req)=>{
       if (!availabilities || availabilities.length === 0) {
         return "Aucune dispo configurée";
       }
-      const currentDate = new Date();
+      // Use France time for availability computation
+      const currentDate = toFranceTime(new Date());
       const dayOfWeek = currentDate.getDay();
       const dateStr = currentDate.toISOString().split('T')[0];
       // Find availabilities for today
@@ -341,8 +377,10 @@ Deno.serve(async (req)=>{
           occupiedMinutes.add(m);
         }
       });
-      // Current time in minutes
+      // Current time in minutes + minimum booking lead time
+      const MINIMUM_BOOKING_LEAD_TIME_MINUTES = 30;
       const currentMinute = currentDate.getHours() * 60 + currentDate.getMinutes();
+      const minimumAllowedMinute = currentMinute + MINIMUM_BOOKING_LEAD_TIME_MINUTES;
       // Build available ranges
       const ranges = [];
       for (const avail of todayAvails){
@@ -358,7 +396,8 @@ Deno.serve(async (req)=>{
         let rangeStart = null;
         for(let m = availStartMinute; m <= availEndMinute; m++){
           const actualMinute = m % (24 * 60);
-          const isPast = actualMinute < currentMinute && m < 24 * 60;
+          // Consider slots as "past" if they're before current time OR within the minimum lead time buffer
+          const isPast = actualMinute < minimumAllowedMinute && m < 24 * 60;
           const isOccupied = occupiedMinutes.has(actualMinute);
           if (!isPast && !isOccupied) {
             // Available slot
@@ -391,7 +430,11 @@ Deno.serve(async (req)=>{
       const endH = Math.floor(actualEnd / 60);
       const endM = actualEnd % 60;
       const formatTime = (h, m)=>m === 0 ? `${h}h` : `${h}h${m.toString().padStart(2, '0')}`;
-      return `${formatTime(startH, startM)}-${formatTime(endH, endM)}`;
+
+      // Indicate if range crosses midnight
+      const crossesMidnight = endMinute > 24 * 60;
+      const rangeStr = `${formatTime(startH, startM)}-${formatTime(endH, endM)}`;
+      return crossesMidnight ? `${rangeStr} (jusqu'à demain matin)` : rangeStr;
     };
     const availableRanges = computeAvailableRanges();
     // Log calcul des disponibilités
@@ -494,8 +537,48 @@ Ne JAMAIS donner les infos d'accès (code, étage, etc.) - elles seront envoyée
 
 ${providerReady && clientArrived ? `✅ Client arrivé et tu es prêt(e) - Les infos d'accès ont déjà été envoyées automatiquement.` : ''}`;
     }
-    // Build system prompt (optimized version)
-    const systemPrompt = `Tu une escort qui gère ses RDV. Première personne, tutoiement, ton friendly/cool/complice, sans emojis.
+    // Build system prompt (conditional based on appointment status)
+    let systemPrompt;
+
+    if (hasConfirmedAppointmentToday) {
+      // MODE ATTENTE: Client has confirmed appointment TODAY - keep it simple, just make them wait
+      systemPrompt = `Tu es une escort et un client a un RDV confirmé AUJOURD'HUI avec toi.
+
+RDV CONFIRMÉ :
+Date : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}
+Heure : ${todayAppointment.start_time}
+Durée : ${todayAppointment.duration_minutes}min
+Service : ${todayAppointment.service}
+
+TON RÔLE :
+- Faire patienter le client avec des messages COURTS et friendly
+- Détecter quand il dit qu'il est arrivé ("je suis là", "suis arrivé", "devant", etc.)
+- NE PAS recollect des infos
+- NE PAS créer de nouveau RDV
+- NE PAS poser de questions sur durée/extras/heure
+- NE PAS donner les codes d'accès (ils seront envoyés automatiquement quand tu seras prête)
+
+STYLE :
+- TRÈS court (max 5-8 mots par message)
+- Friendly, sexy, décontracté
+- Première personne, tutoiement
+- Émojis OK pour ce mode
+
+EXEMPLES DE RÉPONSES :
+- "J'arrive bébé 😘"
+- "2 min je me prépare"
+- "Monte bb"
+- "J'arrive tout de suite"
+- "Patience ❤️"
+- "Je finis et j'arrive"
+
+${appointmentStatusContext}
+
+IMPORTANT : Tu NE peux PAS donner les codes d'accès toi-même. Ils seront envoyés automatiquement quand tu seras prête à recevoir.`;
+
+    } else {
+      // MODE WORKFLOW: No confirmed appointment today - full booking workflow
+      systemPrompt = `Tu une escort qui gère ses RDV. Première personne, tutoiement, ton friendly/cool/complice, sans emojis.
 
 DATE/HEURE : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}, ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
 
@@ -508,7 +591,7 @@ Taboos : ${taboos}
 Tarifs : ${tarifs}
 Adresse : ${adresse}
 
-DISPO AUJOURD'HUI : ${availableRanges}${appointmentStatusContext}
+DISPO AUJOURD'HUI : ${availableRanges}
 
 INTRO :
 1. TOUJOURS commencer par accueillir : "Hey", "Salut", "Coucou"
@@ -516,16 +599,16 @@ INTRO :
 
 "Alors voici ce que je propose:
 
-Prestations: 
+Prestations:
 ${prestations}
 
 Extra:
  ${extras !== 'Aucun' ? extras : 'Aucun'}
 
-Taboo: 
+Taboo:
 ${taboos !== 'Aucun' ? taboos : 'Aucun'}
 
-Mes tarifs: 
+Mes tarifs:
 ${tarifs}
 
 Mon adresse:
@@ -539,12 +622,21 @@ IMPORTANT : Ne JAMAIS envoyer le message structuré dès le 1er message. TOUJOUR
 COLLECTE (4 infos, 1 question/fois) :
 1. DURÉE : ${durationEnum.join('/')} → ${tarifOptions.map((t)=>`${t.duration}=${t.price}€`).join(', ')}. Question: "Quelle durée ?"
 2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map((e)=>`${e}=${extraToPriceMap[e]}€`).join(', ') : 'Aucun'}. Question: "Tu veux l'extra ?" ou "Aucun extra ?"
-3. HEURE : Aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}) uniquement. Toute heure APRÈS ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')} et jusqu'à 2h du matin = AUJOURD'HUI (même soirée). Format: "dans 45min", "à 20h30". Question: "À quelle heure ?" Si demain: "Désolée, que jour même."
+3. HEURE - RÈGLES STRICTES :
+   - Uniquement aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month})
+   - Heure actuelle : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
+   - MINIMUM 30 MINUTES dans le futur (pas avant ${Math.floor((currentDateTime.hour * 60 + currentDateTime.minute + 30) / 60)}h${String(((currentDateTime.hour * 60 + currentDateTime.minute + 30) % 60)).padStart(2, '0')})
+   - Créneaux dispos : ${availableRanges}
+   - Si le créneau contient "(jusqu'à demain matin)", ça veut dire jusqu'à cette heure-là APRÈS MINUIT
+   - Exemple : "21h-2h (jusqu'à demain matin)" = 21h, 22h, 23h, 23h30, minuit, 1h, 1h30 sont TOUS VALIDES
+   - NE JAMAIS proposer l'heure actuelle ou une heure dans moins de 30 minutes
+   - Question: "À quelle heure ?" Si client dit "maintenant" ou < 30min : "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+   - Si demain: "Désolée, que jour même."
 4. CONFIRMATION : Récap court + "Je confirme ?"
 
 WORKFLOW : Valide chaque réponse vs options. Alternatives si besoin. Pas de RDV si info manquante.
 
-JOUR MÊME SEUL : Aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}) = toute heure après ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')} et dans les dispos "${availableRanges}". Ex: à ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}, "20h30"=OK, "demain 10h"=REFUSE. Refuse "demain", "week-end", dates futures.
+JOUR MÊME SEUL : Refuse "demain", "week-end", dates futures. Toute mention de jour futur → "Désolée, que jour même."
 
 MATCHING : "30 minutes"="30min", "1h"="1h", extras approximatifs → match proche.
 
@@ -570,6 +662,7 @@ Tu NE fais PAS : code, technique, général, philo, autre.
 Si hors-sujet: "Désolée bébé, on parle RDV plutôt ? 😏" ou "Hey, concentrons-nous sur nous voir."
 
 CONTEXTE : 20 derniers messages dispo.`;
+    }
     // Log construction du prompt système (CRUCIAL pour comprendre ce que l'IA reçoit)
     await logAIEvent(supabase, user_id, conversation_id, 'ai_prompt_built', 'Prompt système construit avec tous les paramètres dynamiques', {
       system_prompt: systemPrompt,
@@ -609,7 +702,7 @@ CONTEXTE : 20 derniers messages dispo.`;
       });
     }
     console.log('[ai-auto-reply] Calling OpenAI API with', conversationHistory.length, 'messages in history');
-    const openaiRequestBody = {
+    const openaiRequestBody: any = {
       model: 'gpt-4o-mini',
       messages: [
         {
@@ -619,12 +712,14 @@ CONTEXTE : 20 derniers messages dispo.`;
         ...conversationHistory
       ],
       temperature: 0.7,
-      max_tokens: 500,
-      tools: [
-        appointmentTool
-      ],
-      tool_choice: "auto"
+      max_tokens: 500
     };
+
+    // Only enable function calling in WORKFLOW mode (no confirmed appointment today)
+    if (!hasConfirmedAppointmentToday) {
+      openaiRequestBody.tools = [appointmentTool];
+      openaiRequestBody.tool_choice = "auto";
+    }
     // Log requête OpenAI (CRUCIAL)
     const requestTimestamp = Date.now();
     await logAIEvent(supabase, user_id, conversation_id, 'ai_request_sent', 'Requête envoyée à OpenAI API', {
@@ -633,8 +728,9 @@ CONTEXTE : 20 derniers messages dispo.`;
       max_tokens: 500,
       messages_count: conversationHistory.length,
       conversation_history: conversationHistory,
-      has_tools: true,
-      tool_name: 'create_appointment_summary',
+      has_tools: !hasConfirmedAppointmentToday,
+      tool_name: hasConfirmedAppointmentToday ? null : 'create_appointment_summary',
+      ai_mode: hasConfirmedAppointmentToday ? 'WAITING' : 'WORKFLOW',
       request_timestamp: new Date(requestTimestamp).toISOString()
     });
     const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -771,13 +867,108 @@ CONTEXTE : 20 derniers messages dispo.`;
           const endHours = Math.floor(totalMinutes / 60) % 24;
           const endMinutes = totalMinutes % 60;
           const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+
+          // CRITICAL: Server-side validation to prevent appointments too close to current time
+          // Use France time for validation
+          let appointmentDateTime = new Date(`${appointmentData.appointment_date}T${appointmentData.appointment_time}`);
+          const now = toFranceTime(new Date());
+
+          // Handle midnight-crossing appointments: if the appointment time is in the past, it must be for tomorrow
+          if (appointmentDateTime < now) {
+            // Appointment time has already passed today, so it must be for tomorrow
+            appointmentDateTime = new Date(appointmentDateTime.getTime() + 24 * 60 * 60 * 1000);
+            console.log('[ai-auto-reply] Midnight-crossing appointment detected, adjusted to next day:', appointmentDateTime.toISOString());
+          }
+
+          const minutesUntilAppointment = (appointmentDateTime.getTime() - now.getTime()) / (1000 * 60);
+
+          if (minutesUntilAppointment < 30) {
+            console.error('[ai-auto-reply] Appointment too close to current time:', {
+              appointment_time: appointmentData.appointment_time,
+              appointment_date: appointmentData.appointment_date,
+              current_time: now.toISOString(),
+              minutes_until: minutesUntilAppointment
+            });
+
+            await logAIEvent(supabase, user_id, conversation_id, 'appointment_validation_failed', 'Rendez-vous trop proche de l\'heure actuelle (< 30min)', {
+              appointment_time: appointmentData.appointment_time,
+              appointment_date: appointmentData.appointment_date,
+              current_time: now.toISOString(),
+              minutes_until: minutesUntilAppointment,
+              minimum_required: 30,
+              recovery_action: 'error_message_sent_to_user'
+            });
+
+            // Send error message to client
+            await supabase.functions.invoke('send-whatsapp-message', {
+              body: {
+                conversation_id,
+                message: "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘 Choisis une heure plus tard ?",
+                user_id
+              }
+            });
+
+            return new Response(JSON.stringify({
+              error: 'Appointment must be at least 30 minutes in the future',
+              minutes_until: minutesUntilAppointment
+            }), {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
+
+          // Extract the corrected date (potentially adjusted for midnight-crossing appointments)
+          const finalAppointmentDate = appointmentDateTime.toISOString().split('T')[0];
+
+          // Check for duplicate appointment (same conversation, date, and time)
+          const { data: existingAppointment, error: duplicateCheckError } = await supabase
+            .from('appointments')
+            .select('id, status')
+            .eq('conversation_id', conversation_id)
+            .eq('appointment_date', finalAppointmentDate)
+            .eq('start_time', appointmentData.appointment_time)
+            .maybeSingle();
+
+          if (duplicateCheckError) {
+            console.error('[ai-auto-reply] Error checking for duplicate appointment:', duplicateCheckError);
+          }
+
+          if (existingAppointment) {
+            console.log('[ai-auto-reply] Duplicate appointment detected - appointment already exists:', existingAppointment.id);
+
+            // Log duplicate prevention
+            await logAIEvent(supabase, user_id, conversation_id, 'duplicate_prevented', 'Tentative de création de RDV dupliqué bloquée', {
+              existing_appointment_id: existingAppointment.id,
+              existing_status: existingAppointment.status,
+              attempted_date: finalAppointmentDate,
+              attempted_time: appointmentData.appointment_time
+            });
+
+            // Send confirmation message (don't confuse the client)
+            await supabase.functions.invoke('send-whatsapp-message', {
+              body: {
+                conversation_id,
+                message: `Parfait bébé ! On se voit ${appointmentData.appointment_date} à ${appointmentData.appointment_time} 😘`,
+                user_id
+              }
+            });
+
+            return new Response(JSON.stringify({
+              duplicate_prevented: true,
+              existing_appointment_id: existingAppointment.id
+            }), {
+              status: 200,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
+
           // Insert appointment into database
           const { data: newAppointment, error: insertError } = await supabase.from('appointments').insert({
             user_id: user_id,
             conversation_id: conversation_id,
             contact_name: contact_name,
             contact_phone: contact_phone,
-            appointment_date: appointmentData.appointment_date,
+            appointment_date: finalAppointmentDate,
             start_time: appointmentData.appointment_time,
             end_time: endTime,
             duration_minutes: durationMinutes,

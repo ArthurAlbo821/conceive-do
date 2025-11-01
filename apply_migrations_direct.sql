@@ -1,11 +1,11 @@
--- Migration: Add Client Arrival Management Features
--- Date: 2025-10-31
--- Description: Adds columns for tracking client arrival, provider readiness, conversation pinning, and access information
+-- Combined Migration: Client Arrival Features + Duplicate Prevention
+-- This script combines the two pending migrations and applies them safely
 
 -- ============================================================================
+-- PART 1: CLIENT ARRIVAL FEATURES
+-- ============================================================================
+
 -- 1. APPOINTMENTS TABLE: Add client arrival tracking columns
--- ============================================================================
-
 ALTER TABLE appointments
 ADD COLUMN IF NOT EXISTS provider_ready_to_receive BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS client_arrived BOOLEAN DEFAULT false,
@@ -20,10 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_appointments_arrival_status
 ON appointments(user_id, appointment_date, client_arrived, provider_ready_to_receive)
 WHERE status = 'confirmed';
 
--- ============================================================================
 -- 2. USER_INFORMATIONS TABLE: Add sensitive access information columns
--- ============================================================================
-
 ALTER TABLE user_informations
 ADD COLUMN IF NOT EXISTS door_code TEXT,
 ADD COLUMN IF NOT EXISTS floor TEXT,
@@ -35,10 +32,7 @@ COMMENT ON COLUMN user_informations.floor IS 'Floor number/information - SENSITI
 COMMENT ON COLUMN user_informations.elevator_info IS 'Elevator instructions - SENSITIVE';
 COMMENT ON COLUMN user_informations.access_instructions IS 'Additional access instructions - SENSITIVE';
 
--- ============================================================================
 -- 3. CONVERSATIONS TABLE: Add pinning functionality
--- ============================================================================
-
 ALTER TABLE conversations
 ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT false,
 ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ;
@@ -50,10 +44,7 @@ COMMENT ON COLUMN conversations.pinned_at IS 'Timestamp when conversation was pi
 CREATE INDEX IF NOT EXISTS idx_conversations_pinned
 ON conversations(user_id, is_pinned DESC, pinned_at DESC);
 
--- ============================================================================
 -- 4. RPC FUNCTION: Complete appointment and unpin conversation
--- ============================================================================
-
 CREATE OR REPLACE FUNCTION complete_appointment_and_unpin(p_appointment_id UUID)
 RETURNS JSON
 LANGUAGE plpgsql
@@ -106,10 +97,7 @@ $$;
 
 COMMENT ON FUNCTION complete_appointment_and_unpin IS 'Marks appointment as completed and unpins the associated conversation';
 
--- ============================================================================
 -- 5. HELPER FUNCTION: Get today's appointments with arrival status
--- ============================================================================
-
 CREATE OR REPLACE FUNCTION get_todays_appointments_with_status(p_user_id UUID)
 RETURNS TABLE (
   appointment_id UUID,
@@ -141,7 +129,7 @@ BEGIN
     a.conversation_id
   FROM appointments a
   WHERE a.user_id = p_user_id
-    AND a.appointment_date = CURRENT_DATE
+    AND a.appointment_date = (NOW() AT TIME ZONE 'Europe/Paris')::date
     AND a.status = 'confirmed'
   ORDER BY a.start_time ASC;
 END;
@@ -149,10 +137,7 @@ $$;
 
 COMMENT ON FUNCTION get_todays_appointments_with_status IS 'Returns all confirmed appointments for today with arrival and readiness status';
 
--- ============================================================================
 -- 6. TRIGGER: Auto-pin conversation when appointment is confirmed for today
--- ============================================================================
-
 CREATE OR REPLACE FUNCTION auto_pin_conversation_on_appointment_confirm()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -186,9 +171,47 @@ EXECUTE FUNCTION auto_pin_conversation_on_appointment_confirm();
 
 COMMENT ON TRIGGER trigger_auto_pin_on_appointment_confirm ON appointments IS 'Automatically pins conversation when appointment is confirmed for today';
 
--- ============================================================================
 -- 7. GRANTS: Ensure authenticated users can access new functions
--- ============================================================================
-
 GRANT EXECUTE ON FUNCTION complete_appointment_and_unpin(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION get_todays_appointments_with_status(UUID) TO authenticated;
+
+-- ============================================================================
+-- PART 2: DUPLICATE PREVENTION
+-- ============================================================================
+
+-- 1. CLEAN UP EXISTING DUPLICATES (if any)
+WITH duplicate_appointments AS (
+  SELECT
+    id,
+    ROW_NUMBER() OVER (
+      PARTITION BY conversation_id, appointment_date, start_time
+      ORDER BY created_at ASC
+    ) as row_num
+  FROM appointments
+  WHERE conversation_id IS NOT NULL
+)
+DELETE FROM appointments
+WHERE id IN (
+  SELECT id
+  FROM duplicate_appointments
+  WHERE row_num > 1
+);
+
+-- 2. ADD UNIQUE CONSTRAINT (if not exists)
+DO $$
+BEGIN
+  -- Check if constraint already exists
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'unique_appointment_slot'
+  ) THEN
+    ALTER TABLE appointments
+    ADD CONSTRAINT unique_appointment_slot
+    UNIQUE (conversation_id, appointment_date, start_time);
+
+    RAISE NOTICE 'UNIQUE constraint unique_appointment_slot created successfully';
+  ELSE
+    RAISE NOTICE 'UNIQUE constraint unique_appointment_slot already exists';
+  END IF;
+END $$;
+
+COMMENT ON CONSTRAINT unique_appointment_slot ON appointments IS 'Prevents duplicate appointments for the same conversation at the same date and time';

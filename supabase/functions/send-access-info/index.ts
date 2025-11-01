@@ -25,31 +25,68 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseClient = createClient(
+    // Log authorization header for debugging
+    const authHeader = req.headers.get("Authorization");
+    console.log('[send-access-info] Authorization header present:', !!authHeader);
+
+    if (!authHeader) {
+      throw new Error("Missing authorization header");
+    }
+
+    // Extract token from "Bearer <token>" format
+    const token = authHeader.replace('Bearer ', '');
+    console.log('[send-access-info] Token extracted:', token.substring(0, 20) + '...');
+
+    // Create client with ANON_KEY for auth verification
+    const supabaseAuthClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      {
-        global: {
-          headers: { Authorization: req.headers.get("Authorization")! },
-        },
-      }
+      Deno.env.get("SUPABASE_ANON_KEY") ?? ""
     );
 
-    // Get the user from the request
+    // Get the user from the request by passing the token directly
     const {
       data: { user },
       error: userError,
-    } = await supabaseClient.auth.getUser();
+    } = await supabaseAuthClient.auth.getUser(token);
+
+    console.log('[send-access-info] User authentication result:', {
+      user_id: user?.id,
+      has_error: !!userError,
+      error_message: userError?.message
+    });
 
     if (userError || !user) {
+      console.error('[send-access-info] Authentication failed:', userError);
       throw new Error("Unauthorized");
     }
+
+    // Create client with SERVICE_ROLE_KEY to bypass RLS for data operations
+    const supabaseClient = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    console.log('[send-access-info] Using SERVICE_ROLE_KEY for database operations');
 
     const { appointment_id }: SendAccessInfoRequest = await req.json();
 
     if (!appointment_id) {
       throw new Error("appointment_id is required");
     }
+
+    console.log('[send-access-info] Fetching appointment:', {
+      appointment_id,
+      user_id: user.id
+    });
+
+    // First, check if appointment exists without user_id filter
+    const { data: appointmentCheck } = await supabaseClient
+      .from("appointments")
+      .select("id, user_id")
+      .eq("id", appointment_id)
+      .single();
+
+    console.log('[send-access-info] Appointment check:', appointmentCheck);
 
     // Fetch the appointment with all necessary details
     const { data: appointment, error: appointmentError } = await supabaseClient
@@ -165,7 +202,7 @@ serve(async (req) => {
         evolution_instances (
           id,
           instance_name,
-          status
+          instance_status
         )
       `
         )
@@ -179,7 +216,9 @@ serve(async (req) => {
 
     const instance = conversation.evolution_instances as any;
 
-    if (!instance || instance.status !== "connected") {
+    console.log('[send-access-info] Instance status:', instance?.instance_status);
+
+    if (!instance || instance.instance_status !== "connected") {
       throw new Error("WhatsApp instance is not connected");
     }
 

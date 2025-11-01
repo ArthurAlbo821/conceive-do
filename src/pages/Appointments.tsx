@@ -59,11 +59,53 @@ const Appointments = () => {
   const handleSendAccessInfo = async (appointmentId: string) => {
     setSendingAccessInfo(appointmentId);
     try {
+      // Check if user is authenticated
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log('Current session:', session ? 'Authenticated' : 'Not authenticated');
+      console.log('Access token:', session?.access_token ? 'Present' : 'Missing');
+      console.log('Sending appointment_id:', appointmentId);
+
+      // Verify appointment exists in DB before calling function
+      const { data: appointmentCheck, error: checkError } = await supabase
+        .from('appointments')
+        .select('id, user_id, status, client_arrived')
+        .eq('id', appointmentId)
+        .single();
+
+      console.log('Appointment check from frontend:', appointmentCheck, checkError);
+
       const { data, error } = await supabase.functions.invoke("send-access-info", {
         body: { appointment_id: appointmentId },
       });
 
-      if (error) throw error;
+      // Handle FunctionInvokeError (non-2xx status codes)
+      if (error) {
+        console.log('Full error object:', error);
+
+        // Extract the actual error message from the Edge Function response
+        let errorMessage = "Impossible d'envoyer les informations d'accès";
+
+        try {
+          // The error.context is a Response object, need to parse it
+          if (error.context && typeof error.context.json === 'function') {
+            const errorBody = await error.context.json();
+            console.log('Error body:', errorBody);
+
+            if (errorBody.error) {
+              errorMessage = errorBody.error;
+            }
+          }
+        } catch (parseError) {
+          console.error('Failed to parse error response:', parseError);
+        }
+
+        toast({
+          variant: "destructive",
+          title: "Erreur",
+          description: errorMessage,
+        });
+        return;
+      }
 
       if (data?.success) {
         toast({
@@ -73,7 +115,13 @@ const Appointments = () => {
         // Refresh appointments to show updated status
         window.location.reload();
       } else {
-        throw new Error(data?.error || "Échec de l'envoi");
+        // Handle error from function response body
+        const errorMsg = data?.error || "Échec de l'envoi";
+        toast({
+          variant: "destructive",
+          title: "Erreur",
+          description: errorMsg,
+        });
       }
     } catch (error: any) {
       console.error("Error sending access info:", error);
@@ -148,16 +196,18 @@ const Appointments = () => {
     setSelectedDate(undefined);
   };
 
+  // Active appointments: All appointments that are NOT completed (regardless of time)
   const upcomingAppointments = appointments
-    .filter((apt) => new Date(`${apt.appointment_date}T${apt.start_time}`) >= new Date())
+    .filter((apt) => apt.status !== 'completed')
     .sort((a, b) => {
       const dateA = new Date(`${a.appointment_date}T${a.start_time}`);
       const dateB = new Date(`${b.appointment_date}T${b.start_time}`);
       return dateA.getTime() - dateB.getTime();
     });
 
+  // History: Only appointments marked as completed
   const pastAppointments = appointments
-    .filter((apt) => new Date(`${apt.appointment_date}T${apt.start_time}`) < new Date())
+    .filter((apt) => apt.status === 'completed')
     .sort((a, b) => {
       const dateA = new Date(`${a.appointment_date}T${a.start_time}`);
       const dateB = new Date(`${b.appointment_date}T${b.start_time}`);
@@ -169,6 +219,10 @@ const Appointments = () => {
     const isTodayAppointment = isToday(appointmentDate);
     const clientArrived = (appointment as any).client_arrived;
     const providerReady = (appointment as any).provider_ready_to_receive;
+
+    // Check if appointment time has passed but status is not completed
+    const appointmentDateTime = new Date(`${appointment.appointment_date}T${appointment.start_time}`);
+    const isPastDue = appointmentDateTime < new Date() && appointment.status !== 'completed';
 
     return (
       <Card className={isTodayAppointment && appointment.status === "confirmed" ? "border-blue-300" : ""}>
@@ -188,6 +242,12 @@ const Appointments = () => {
               <Badge className={STATUS_COLORS[appointment.status]}>
                 {STATUS_LABELS[appointment.status]}
               </Badge>
+              {isPastDue && (
+                <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Heure passée
+                </Badge>
+              )}
               {isTodayAppointment && appointment.status === "confirmed" && clientArrived && (
                 <Badge className="bg-orange-500/10 text-orange-600 border-orange-500/20">
                   <Bell className="h-3 w-3 mr-1" />
