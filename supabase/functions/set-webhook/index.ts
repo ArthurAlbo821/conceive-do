@@ -121,22 +121,22 @@ Deno.serve(async (req) => {
     console.log(`   ➜ Base URL: ${evolutionBaseUrl}`);
 
     const webhookPayload = {
-      url: webhookUrl,
-      webhook_by_events: false,
-      webhook_base64: false,
-      events: [
-        'QRCODE_UPDATED',
-        'CONNECTION_UPDATE',
-        'MESSAGES_UPSERT',
-        'MESSAGES_UPDATE',
-        'SEND_MESSAGE'
-      ]
+      webhook: {
+        url: webhookUrl,
+        enabled: true,
+        events: [
+          'QRCODE_UPDATED',
+          'CONNECTION_UPDATE',
+          'MESSAGES_UPSERT',
+          'MESSAGES_UPDATE',
+          'SEND_MESSAGE'
+        ]
+      }
     };
     console.log('   ➜ Configuration du webhook:');
-    console.log('      • URL:', webhookPayload.url);
-    console.log('      • Par événements:', webhookPayload.webhook_by_events);
-    console.log('      • Base64:', webhookPayload.webhook_base64);
-    console.log('      • Événements écoutés:', webhookPayload.events.join(', '));
+    console.log('      • URL:', webhookPayload.webhook.url);
+    console.log('      • Enabled:', webhookPayload.webhook.enabled);
+    console.log('      • Événements écoutés:', webhookPayload.webhook.events.join(', '));
 
     // ÉTAPE 6 : APPEL API EVOLUTION
     console.log('\n📡 [set-webhook] ÉTAPE 5 - Appel à l\'API Evolution');

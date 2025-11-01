@@ -29,3 +29,15 @@ verify_jwt = true
 
 [functions.ai-auto-reply]
 verify_jwt = false
+
+[functions.diagnose-webhook]
+verify_jwt = false
+
+[functions.process-evolution-queue]
+verify_jwt = false
+
+[functions.refresh-qr-codes]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = true

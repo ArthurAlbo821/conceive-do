@@ -506,28 +506,28 @@ Deno.serve(async (req) => {
     console.log(`[create-evolution-instance] Instance created, configuring webhook`);
     console.log(`[create-evolution-instance] Webhook URL: ${webhookUrl}`);
 
-    // Step 2: Configure webhook with detailed logging and multiple attempts
+    // Step 2: Configure webhook with the correct format discovered through diagnostic
     console.log('[create-evolution-instance] Instance created, configuring webhook');
     console.log('[create-evolution-instance] Webhook URL:', webhookUrl);
-    
+
     try {
+      // Correct webhook configuration format based on Evolution API requirements
       const webhookConfig = {
-        url: webhookUrl,
-        webhook_by_events: false,
-        webhook_base64: false,
-        events: [
-          'QRCODE_UPDATED',
-          'CONNECTION_UPDATE',
-          'MESSAGES_UPSERT',
-          'MESSAGES_UPDATE',
-          'SEND_MESSAGE'
-        ]
+        webhook: {
+          url: webhookUrl,
+          enabled: true,
+          events: [
+            'QRCODE_UPDATED',
+            'CONNECTION_UPDATE',
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'SEND_MESSAGE'
+          ]
+        }
       };
-      
+
       console.log('[create-evolution-instance] Webhook config:', JSON.stringify(webhookConfig, null, 2));
-      
-      // Method 1: Standard webhook configuration
-      console.log('[create-evolution-instance] Attempting Method 1: Standard webhook config');
+
       const webhookResponse = await fetchWithRetry(
         `${baseUrl}/webhook/set/${instanceName}`,
         {
@@ -543,80 +543,15 @@ Deno.serve(async (req) => {
 
       if (!webhookResponse.ok) {
         const errorText = await webhookResponse.text();
-        console.error('[create-evolution-instance] Method 1 failed:', {
+        console.error('[create-evolution-instance] Webhook configuration failed:', {
           status: webhookResponse.status,
           error: webhookResponse.statusText,
           response: errorText
         });
-        
-        // Method 2: Alternative format with webhook wrapper
-        console.log('[create-evolution-instance] Attempting Method 2: Webhook wrapper format');
-        const altWebhookResponse = await fetchWithRetry(
-          `${baseUrl}/webhook/set/${instanceName}`,
-          {
-            method: 'POST',
-            headers: {
-              'apikey': apiGeneratedToken,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              webhook: {
-                url: webhookUrl,
-                events: true
-              }
-            }),
-          },
-          { retries: 1, timeoutMs: 10000 }
-        );
-        
-        if (!altWebhookResponse.ok) {
-          const altErrorText = await altWebhookResponse.text();
-          console.error('[create-evolution-instance] Method 2 failed:', altErrorText);
-          
-          // Method 3: Format with enabled flag and explicit events
-          console.log('[create-evolution-instance] Attempting Method 3: Enabled flag with explicit events');
-          const method3Config = {
-            url: webhookUrl,
-            enabled: true,
-            webhook_by_events: false,
-            webhook_base64: false,
-            events: [
-              'QRCODE_UPDATED',
-              'CONNECTION_UPDATE',
-              'MESSAGES_UPSERT',
-              'MESSAGES_UPDATE',
-              'SEND_MESSAGE'
-            ]
-          };
-          
-          const method3Response = await fetchWithRetry(
-            `${baseUrl}/webhook/set/${instanceName}`,
-            {
-              method: 'POST',
-              headers: {
-                'apikey': apiGeneratedToken,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(method3Config),
-            },
-            { retries: 1, timeoutMs: 10000 }
-          );
-          
-          if (!method3Response.ok) {
-            const method3ErrorText = await method3Response.text();
-            console.error('[create-evolution-instance] Method 3 failed:', method3ErrorText);
-            console.log('[create-evolution-instance] ⚠️ All webhook configuration methods failed - instance will use polling only');
-          } else {
-            const method3Result = await method3Response.json();
-            console.log('[create-evolution-instance] ✅ Method 3 succeeded! Webhook configured:', method3Result);
-          }
-        } else {
-          const altResult = await altWebhookResponse.json();
-          console.log('[create-evolution-instance] ✅ Method 2 succeeded! Webhook configured:', altResult);
-        }
+        console.log('[create-evolution-instance] ⚠️ Webhook configuration failed - instance will use polling only');
       } else {
         const webhookResult = await webhookResponse.json();
-        console.log('[create-evolution-instance] ✅ Method 1 succeeded! Webhook configured:', webhookResult);
+        console.log('[create-evolution-instance] ✅ Webhook configured successfully:', webhookResult);
       }
     } catch (error) {
       console.error('[create-evolution-instance] Webhook configuration exception:', error);
