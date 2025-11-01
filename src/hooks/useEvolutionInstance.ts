@@ -189,34 +189,19 @@ export const useEvolutionInstance = () => {
     }
   }, [instance?.instance_status]);
 
-  // Auto-refresh QR code before expiration
+  // Auto-refresh QR code - NOW HANDLED BY BACKEND CRON JOB
+  // QR codes are automatically refreshed every 60 seconds by the refresh-qr-codes Edge Function
+  // The real-time subscription below will receive and display updates automatically
+  //
+  // Previous behavior: Frontend refreshed at 110 seconds (1:50)
+  // New behavior: Backend cron refreshes every 60 seconds, updates pushed via real-time
+  //
+  // This effect is intentionally disabled to prevent duplicate refresh requests
   useEffect(() => {
-    if (
-      !instance ||
-      instance.instance_status !== "connecting" ||
-      !instance.last_qr_update ||
-      !instance.qr_code
-    ) {
-      return;
-    }
-
-    const checkAndRefreshQR = () => {
-      const lastUpdate = new Date(instance.last_qr_update!).getTime();
-      const now = Date.now();
-      const elapsed = Math.floor((now - lastUpdate) / 1000);
-
-      // Refresh at 110 seconds (10 seconds before expiration) - guarded to run once per QR
-      if (elapsed >= 110 && lastAutoRefreshFromRef.current !== instance.last_qr_update) {
-        console.log("[useEvolutionInstance] Auto-refreshing QR code at 1:50 (silent)");
-        lastAutoRefreshFromRef.current = instance.last_qr_update!;
-        createInstance({ forceRefresh: true, silent: true });
-      }
-    };
-
-    // Check every 5 seconds
-    const interval = setInterval(checkAndRefreshQR, 5000);
-
-    return () => clearInterval(interval);
+    // Disabled - QR refresh is now managed by backend cron job
+    // The real-time subscription in the earlier useEffect handles UI updates
+    console.log("[useEvolutionInstance] QR auto-refresh handled by backend cron (every 60s)");
+    return () => {}; // No-op cleanup
   }, [instance?.last_qr_update, instance?.instance_status, instance?.qr_code]);
 
   // Auto-recovery: if connecting but no QR code, try to get one (with cooldown)

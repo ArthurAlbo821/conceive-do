@@ -84,20 +84,47 @@ Deno.serve(async (req) => {
       throw new Error('Missing authorization header');
     }
 
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      throw new Error('Unauthorized');
-    }
-
-    // Parse request body for forceRefresh parameter
+    // Parse request body for parameters
     const body = await req.json().catch(() => ({}));
     const forceRefresh = body?.forceRefresh === true;
+    const fromQueue = body?.fromQueue === true;
+    const userId = body?.userId;
+
+    // Determine if this is a service role call (from queue processing)
+    const isServiceRole = authHeader.includes(Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'impossible-to-match');
+
+    let supabase;
+    let user;
+
+    if (isServiceRole && userId) {
+      // Service role call from queue - use service role client
+      console.log(`[create-evolution-instance] Service role call for user ${userId} (fromQueue: ${fromQueue})`);
+
+      supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      );
+
+      // Get user info from auth.users
+      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
+      if (userError || !userData.user) {
+        throw new Error(`User not found: ${userId}`);
+      }
+      user = userData.user;
+    } else {
+      // Regular authenticated user call
+      supabase = createClient(
+        Deno.env.get('SUPABASE_URL') ?? '',
+        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+        { global: { headers: { Authorization: authHeader } } }
+      );
+
+      const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
+      if (userError || !authUser) {
+        throw new Error('Unauthorized');
+      }
+      user = authUser;
+    }
 
     console.log(`[create-evolution-instance] User ${user.id} requesting instance (forceRefresh: ${forceRefresh})`);
 

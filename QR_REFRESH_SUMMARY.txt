@@ -1,0 +1,118 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║                                                                          ║
+║   RAFRAÎCHISSEMENT AUTOMATIQUE DES QR CODES - IMPLÉMENTATION TERMINÉE   ║
+║                                                                          ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+📋 OBJECTIF ATTEINT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ QR codes rafraîchis automatiquement toutes les 60 secondes
+✅ Fonctionne même si l'utilisateur n'a pas la page ouverte
+✅ Centralisation backend pour meilleure fiabilité
+✅ Amélioration de 45% par rapport à l'ancien système (110s → 60s)
+
+📁 FICHIERS CRÉÉS (8 nouveaux + 1 modifié)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 BACKEND
+  📄 supabase/functions/refresh-qr-codes/index.ts (7.2K)
+     └─ Edge Function principale - rafraîchit les QR codes
+  
+  📄 supabase/sql/setup-qr-refresh-cron.sql (2.6K)
+     └─ Configuration du cron job pg_cron
+  
+  📄 supabase/functions/_cron/refresh-qr-codes.ts (1.4K)
+     └─ Configuration et documentation du cron
+
+📚 DOCUMENTATION
+  📄 QR_REFRESH_SETUP.md (13K)
+     └─ Guide complet : Architecture, Installation, Monitoring
+  
+  📄 QUICK_START_QR_REFRESH.md (2.6K)
+     └─ Guide de démarrage rapide (3 étapes)
+  
+  📄 QR_REFRESH_CHANGES.md (15K)
+     └─ Documentation détaillée des changements
+  
+  📄 supabase/functions/refresh-qr-codes/README.md (9.7K)
+     └─ Documentation technique de la fonction
+
+🧪 TESTS
+  📄 test-qr-refresh.sh (6.9K)
+     └─ Script de test automatisé
+
+💻 FRONTEND
+  📝 src/hooks/useEvolutionInstance.ts (modifié)
+     └─ Désactivation de l'auto-refresh (géré par backend)
+
+🚀 DÉPLOIEMENT RAPIDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1️⃣  Déployer la fonction
+    $ supabase functions deploy refresh-qr-codes --no-verify-jwt
+
+2️⃣  Configurer le cron job (SQL Editor dans Supabase Dashboard)
+    $ cat supabase/sql/setup-qr-refresh-cron.sql
+    # Copier-coller dans le SQL Editor et remplacer :
+    # - YOUR_PROJECT_REF
+    # - YOUR_SERVICE_ROLE_KEY
+
+3️⃣  Tester
+    $ ./test-qr-refresh.sh
+
+📖 GUIDES DISPONIBLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📘 Démarrage rapide    → QUICK_START_QR_REFRESH.md
+📗 Installation        → QR_REFRESH_SETUP.md
+📙 Changements         → QR_REFRESH_CHANGES.md
+📕 Technique           → supabase/functions/refresh-qr-codes/README.md
+
+🔍 MONITORING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Vérifier le cron job
+SELECT * FROM cron.job WHERE jobname = 'refresh-qr-codes';
+
+# Historique d'exécution
+SELECT * FROM cron.job_run_details
+WHERE jobid = (SELECT jobid FROM cron.job WHERE jobname = 'refresh-qr-codes')
+ORDER BY start_time DESC LIMIT 10;
+
+# QR codes récents
+SELECT instance_name, last_qr_update, NOW() - last_qr_update AS age
+FROM evolution_instances
+WHERE instance_status = 'connecting'
+ORDER BY last_qr_update DESC;
+
+# Logs en temps réel
+$ supabase functions logs refresh-qr-codes --tail
+
+⚡ PERFORMANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Avant  : Rafraîchissement toutes les 110 secondes (frontend)
+Après  : Rafraîchissement toutes les 60 secondes (backend)
+Gain   : 45% d'amélioration de la fréquence
+
+Avant  : Nécessite que l'utilisateur ait la page ouverte
+Après  : Fonctionne en arrière-plan
+
+Avant  : Charge sur le client
+Après  : Charge sur le backend (centralisée)
+
+✅ CHECKLIST POST-DÉPLOIEMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+□ Edge Function refresh-qr-codes déployée
+□ Variables d'environnement configurées
+□ Extensions pg_cron et pg_net activées
+□ Cron job créé et actif
+□ Test manuel réussi
+□ QR codes se rafraîchissent toutes les 60s
+□ Frontend reçoit les mises à jour en temps réel
+□ Logs accessibles et clairs
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Version : 1.0.0 | Date : 2025-11-01 | Fréquence : 60 secondes
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
