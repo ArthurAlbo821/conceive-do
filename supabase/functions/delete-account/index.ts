@@ -20,18 +20,18 @@ interface DeleteAccountRequest {
   userId: string;
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 Deno.serve(async (req) => {
   try {
     console.log('[delete-account] Starting account deletion process');
 
     // CORS handling
     if (req.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-        },
-      });
+      return new Response(null, { headers: corsHeaders });
     }
 
     // Get user from JWT
@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
       console.error('[delete-account] Missing authorization header');
       return new Response(
         JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
       console.error('[delete-account] Authentication failed:', authError);
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -195,7 +195,7 @@ Deno.serve(async (req) => {
           error: 'Failed to delete user account',
           details: deleteUserError.message
         }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -220,8 +220,8 @@ Deno.serve(async (req) => {
       {
         status: 200,
         headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          ...corsHeaders,
+          'Content-Type': 'application/json'
         }
       }
     );
@@ -237,8 +237,8 @@ Deno.serve(async (req) => {
       {
         status: 500,
         headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
+          ...corsHeaders,
+          'Content-Type': 'application/json'
         }
       }
     );
