@@ -42,34 +42,35 @@ async function fetchWithRetry(
 }
 
 // Helper function to check if instance exists in Evolution API
+// Uses instance-specific token and connectionState endpoint for reliable checking
 async function checkInstanceExists(
   instanceName: string,
-  apiKey: string,
+  instanceToken: string,
   baseUrl: string
 ): Promise<boolean> {
   try {
+    // Use connectionState endpoint which is more reliable than fetchInstances
+    // Returns 200 if instance exists (regardless of connection state)
+    // Returns 404 if instance doesn't exist
     const response = await fetchWithRetry(
-      `${baseUrl}/instance/fetchInstances?instanceName=${instanceName}`,
+      `${baseUrl}/instance/connectionState/${instanceName}`,
       {
         method: 'GET',
         headers: {
-          'apikey': apiKey,
+          'apikey': instanceToken,  // Use instance-specific token, not global API key
         },
       },
       { retries: 1, timeoutMs: 5000 }
     );
 
-    if (!response.ok) {
-      return false;
-    }
-
-    const instances = await response.json();
-    return Array.isArray(instances) && instances.some(
-      (inst: any) => inst.instance?.instanceName === instanceName
-    );
+    // If we get a successful response, instance exists
+    // 404 means instance doesn't exist
+    const exists = response.ok;
+    console.log(`[checkInstanceExists] Instance ${instanceName}: ${exists ? 'EXISTS' : 'NOT FOUND'} (status: ${response.status})`);
+    return exists;
   } catch (error) {
     console.error('[checkInstanceExists] Error checking instance:', error);
-    return false;
+    return false;  // Assume doesn't exist on error (safe default)
   }
 }
 
@@ -166,7 +167,7 @@ Deno.serve(async (req) => {
       console.log(`[create-evolution-instance] Force refreshing QR code for instance: ${existingInstance.instance_name}`);
       
       // First, check if instance still exists in Evolution API
-      const instanceExists = await checkInstanceExists(existingInstance.instance_name, EVOLUTION_API_KEY, baseUrl);
+      const instanceExists = await checkInstanceExists(existingInstance.instance_name, existingInstance.instance_token, baseUrl);
       
       if (!instanceExists) {
         console.log('[create-evolution-instance] Instance no longer exists in Evolution API (manually deleted)');
@@ -340,7 +341,7 @@ Deno.serve(async (req) => {
       console.log(`[create-evolution-instance] Reconnecting disconnected instance: ${instanceName}`);
       
       // Check if instance still exists in Evolution API
-      const instanceExists = await checkInstanceExists(instanceName, EVOLUTION_API_KEY, baseUrl);
+      const instanceExists = await checkInstanceExists(instanceName, currentInstance.instance_token, baseUrl);
       
       try {
         if (instanceExists) {
@@ -500,15 +501,40 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`[create-evolution-instance] Received instance token from API (type: ${typeof createData.hash})`);
+    console.log(`[create-evolution-instance] ✅ Instance created, received token from API`);
 
-    console.log(`[create-evolution-instance] Received instance token from API`);
-    console.log(`[create-evolution-instance] Instance created, configuring webhook`);
-    console.log(`[create-evolution-instance] Webhook URL: ${webhookUrl}`);
+    // Validate token before proceeding
+    if (apiGeneratedToken !== instanceToken) {
+      console.log(`[create-evolution-instance] ⚠️ API returned different token than requested`);
+      console.log(`[create-evolution-instance]    Requested: ${instanceToken.substring(0, 8)}...`);
+      console.log(`[create-evolution-instance]    Received:  ${apiGeneratedToken.substring(0, 8)}...`);
+    }
 
-    // Step 2: Configure webhook with the correct format discovered through diagnostic
-    console.log('[create-evolution-instance] Instance created, configuring webhook');
-    console.log('[create-evolution-instance] Webhook URL:', webhookUrl);
+    // Add delay to allow Evolution API's internal database to complete transactions
+    console.log('[create-evolution-instance] ⏱️  Waiting 3 seconds for Evolution API to stabilize...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Verify instance exists before attempting webhook configuration
+    console.log('[create-evolution-instance] Verifying instance existence in Evolution API...');
+    let instanceReady = false;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      instanceReady = await checkInstanceExists(instanceName, apiGeneratedToken, baseUrl);
+      if (instanceReady) {
+        console.log(`[create-evolution-instance] ✅ Instance verified (attempt ${attempt}/5)`);
+        break;
+      }
+      console.log(`[create-evolution-instance] Instance not ready yet (attempt ${attempt}/5), waiting 1s...`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    if (!instanceReady) {
+      console.error('[create-evolution-instance] ⚠️ Instance verification failed after 5 attempts');
+      console.log('[create-evolution-instance] Proceeding with webhook configuration anyway...');
+    } else {
+      console.log('[create-evolution-instance] ✅ Instance ready and token validated');
+    }
+
+    console.log(`[create-evolution-instance] 📡 Configuring webhook...`);
 
     try {
       // Correct webhook configuration format based on Evolution API requirements
@@ -526,40 +552,71 @@ Deno.serve(async (req) => {
         }
       };
 
-      console.log('[create-evolution-instance] Webhook config:', JSON.stringify(webhookConfig, null, 2));
 
-      const webhookResponse = await fetchWithRetry(
-        `${baseUrl}/webhook/set/${instanceName}`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': apiGeneratedToken,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(webhookConfig),
-        },
-        { retries: 2, timeoutMs: 10000 }
-      );
+      // Retry webhook configuration with exponential backoff specifically for 404 errors
+      let webhookConfigured = false;
+      let lastWebhookError = null;
 
-      if (!webhookResponse.ok) {
-        const errorText = await webhookResponse.text();
-        console.error('[create-evolution-instance] Webhook configuration failed:', {
-          status: webhookResponse.status,
-          error: webhookResponse.statusText,
-          response: errorText
-        });
-        console.log('[create-evolution-instance] ⚠️ Webhook configuration failed - instance will use polling only');
-      } else {
-        const webhookResult = await webhookResponse.json();
-        console.log('[create-evolution-instance] ✅ Webhook configured successfully:', webhookResult);
+      for (let retryAttempt = 0; retryAttempt < 3; retryAttempt++) {
+        try {
+          const webhookResponse = await fetchWithRetry(
+            `${baseUrl}/webhook/set/${instanceName}`,
+            {
+              method: 'POST',
+              headers: {
+                'apikey': apiGeneratedToken,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(webhookConfig),
+            },
+            { retries: 1, timeoutMs: 10000 }
+          );
+
+          if (webhookResponse.ok) {
+            console.log('[create-evolution-instance] ✅ Webhook configured successfully');
+            webhookConfigured = true;
+            break;
+          } else {
+            const errorText = await webhookResponse.text();
+            lastWebhookError = {
+              status: webhookResponse.status,
+              error: webhookResponse.statusText,
+              response: errorText
+            };
+
+            // If it's a 404 "instance does not exist" error, this is a timing issue - retry with backoff
+            if (webhookResponse.status === 404 && retryAttempt < 2) {
+              const backoffMs = 1000 * Math.pow(2, retryAttempt); // 1s, 2s, 4s
+              console.log(`[create-evolution-instance] ⏱️  Webhook got 404, retrying in ${backoffMs}ms (attempt ${retryAttempt + 2}/3)...`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+              continue;
+            } else {
+              // Other errors or final attempt
+              console.error(`[create-evolution-instance] ❌ Webhook failed: ${webhookResponse.status} ${webhookResponse.statusText}`);
+              break;
+            }
+          }
+        } catch (error) {
+          lastWebhookError = error;
+          if (retryAttempt < 2) {
+            const backoffMs = 1000 * Math.pow(2, retryAttempt);
+            console.log(`[create-evolution-instance] Webhook config exception, retrying in ${backoffMs}ms...`);
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
+          }
+        }
+      }
+
+      if (!webhookConfigured) {
+        console.error('[create-evolution-instance] ⚠️ Webhook failed after 3 attempts');
+        console.log('[create-evolution-instance] ℹ️  Instance will use polling for updates');
       }
     } catch (error) {
-      console.error('[create-evolution-instance] Webhook configuration exception:', error);
-      console.log('[create-evolution-instance] ⚠️ Instance will rely on polling for status updates');
+      console.error('[create-evolution-instance] ⚠️ Webhook configuration exception');
+      console.log('[create-evolution-instance] ℹ️  Instance will use polling for updates');
       // Non-blocking: continue without webhook
     }
 
-    console.log(`[create-evolution-instance] Webhook configured, fetching QR code`);
+    console.log(`[create-evolution-instance] 📱 Fetching QR code...`);
 
     // Step 3: Get QR code
     let qrResponse: Response;
@@ -575,7 +632,7 @@ Deno.serve(async (req) => {
         { retries: 2, timeoutMs: 10000 }
       );
     } catch (error) {
-      console.error('[create-evolution-instance] QR code fetch failed:', error);
+      console.error('[create-evolution-instance] ❌ QR code fetch failed:', error);
       return new Response(
         JSON.stringify({
           success: false,
@@ -592,7 +649,7 @@ Deno.serve(async (req) => {
 
     if (!qrResponse.ok) {
       const errorText = await qrResponse.text();
-      console.error('[create-evolution-instance] QR code fetch error:', errorText);
+      console.error(`[create-evolution-instance] ❌ QR code fetch error: ${qrResponse.status}`);
       return new Response(
         JSON.stringify({
           success: false,
@@ -610,15 +667,15 @@ Deno.serve(async (req) => {
     const qrData = await qrResponse.json();
     const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
 
-    console.log(`[create-evolution-instance] QR code retrieved, saving to database`);
+    console.log(`[create-evolution-instance] ✅ QR code retrieved`);
+    console.log(`[create-evolution-instance] 💾 Saving to database...`);
 
     // Step 4: Save to database
     // CRITICAL: Use currentInstance (reloaded after potential deletions) not existingInstance
     const dbInstance = currentInstance || null;
-    
+
     if (dbInstance) {
       // Update existing instance
-      console.log(`[create-evolution-instance] DB action: UPDATE id=${dbInstance.id}`);
       const { data: updatedInstance, error: updateError } = await supabase
         .from('evolution_instances')
         .update({
@@ -634,11 +691,11 @@ Deno.serve(async (req) => {
         .single();
 
       if (updateError) {
-        console.error('[create-evolution-instance] Database update error:', updateError);
+        console.error('[create-evolution-instance] ❌ Database update error:', updateError);
         throw updateError;
       }
 
-      console.log(`[create-evolution-instance] Instance updated successfully`);
+      console.log(`[create-evolution-instance] ✅ Instance updated - ready to scan!`);
 
       return new Response(
         JSON.stringify({
@@ -649,7 +706,6 @@ Deno.serve(async (req) => {
       );
     } else {
       // Insert new instance
-      console.log(`[create-evolution-instance] DB action: INSERT new instance`);
       const { data: newInstance, error: insertError } = await supabase
         .from('evolution_instances')
         .insert({
@@ -665,11 +721,11 @@ Deno.serve(async (req) => {
         .single();
 
       if (insertError) {
-        console.error('[create-evolution-instance] Database insert error:', insertError);
+        console.error('[create-evolution-instance] ❌ Database insert error:', insertError);
         throw insertError;
       }
 
-      console.log(`[create-evolution-instance] Instance created successfully`);
+      console.log(`[create-evolution-instance] ✅ Instance created - ready to scan!`);
 
       return new Response(
         JSON.stringify({

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useEvolutionInstance } from "@/hooks/useEvolutionInstance";
 import { QRCodeDisplay } from "@/components/QRCodeDisplay";
 import { ConnectionStatus } from "@/components/ConnectionStatus";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -18,7 +18,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const { instance, loading, error, createInstance, checkStatus } = useEvolutionInstance();
   const { toast } = useToast();
-  const [isResetting, setIsResetting] = useState(false);
+  const createInstanceCalledRef = useRef(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -33,91 +33,14 @@ const Dashboard = () => {
   }, [navigate]);
 
   useEffect(() => {
-    // If no instance exists, create one automatically
-    if (!loading && !instance && !error) {
+    // If no instance exists, create one automatically (ONCE)
+    if (!loading && !instance && !error && !createInstanceCalledRef.current) {
+      createInstanceCalledRef.current = true;
       createInstance({ forceRefresh: false });
     }
   }, [loading, instance, error]);
 
-  // Logout function kept for future use
-  // const handleLogout = async () => {
-  //   await supabase.auth.signOut();
-  //   navigate('/auth');
-  // };
 
-  const handleResetInstance = async () => {
-    // eslint-disable-next-line no-alert
-    if (
-      !window.confirm(
-        "Êtes-vous sûr de vouloir réinitialiser votre instance ? Un nouveau QR code sera généré."
-      )
-    ) {
-      return;
-    }
-
-    setIsResetting(true);
-    try {
-      // Call edge function to properly delete from Evolution API and DB
-      const { data, error } = await supabase.functions.invoke("reset-current-instance");
-
-      if (error) throw error;
-
-      if (!data?.success) {
-        throw new Error(data?.error || "Erreur lors de la suppression");
-      }
-
-      toast({
-        title: "Instance supprimée",
-        description: "Création d'une nouvelle instance en cours...",
-      });
-
-      // Small delay to let the DB update propagate
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      // Recreate instance with proper webhook configuration
-      await createInstance({ forceRefresh: false });
-    } catch (error) {
-      console.error("Error resetting instance:", error);
-      toast({
-        title: "Erreur",
-        description:
-          error instanceof Error ? error.message : "Impossible de réinitialiser l'instance",
-        variant: "destructive",
-      });
-    } finally {
-      setIsResetting(false);
-    }
-  };
-
-  const handleReconfigureWebhook = async () => {
-    try {
-      toast({
-        title: "Reconfiguration du webhook",
-        description: "Configuration en cours...",
-      });
-
-      const { data, error } = await supabase.functions.invoke("set-webhook");
-
-      if (error) throw error;
-
-      if (!data?.success) {
-        throw new Error(data?.error || "Erreur lors de la reconfiguration");
-      }
-
-      toast({
-        title: "Webhook reconfiguré",
-        description: "Les messages devraient maintenant être reçus correctement.",
-      });
-    } catch (error) {
-      console.error("Error reconfiguring webhook:", error);
-      toast({
-        title: "Erreur",
-        description:
-          error instanceof Error ? error.message : "Impossible de reconfigurer le webhook",
-        variant: "destructive",
-      });
-    }
-  };
 
   const handleToggleAI = async (enabled: boolean) => {
     if (!instance?.id) return;
@@ -175,16 +98,6 @@ const Dashboard = () => {
             <div className="max-w-4xl mx-auto">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold">Connexion WhatsApp</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleResetInstance}
-                  disabled={isResetting || loading}
-                  title="Réinitialiser l'instance (supprime et recrée)"
-                >
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  {isResetting ? "Réinit..." : "Réinitialiser"}
-                </Button>
               </div>
 
               {/* Real-time monitoring indicator */}
@@ -253,6 +166,7 @@ const Dashboard = () => {
                         variant="outline"
                         size="sm"
                         disabled={loading}
+                        className="hidden"
                       >
                         {loading ? (
                           <>
@@ -318,13 +232,6 @@ const Dashboard = () => {
                           <div className="space-y-2">
                             <Button onClick={() => navigate("/messages")} className="w-full">
                               Accéder aux messages
-                            </Button>
-                            <Button
-                              onClick={handleReconfigureWebhook}
-                              variant="outline"
-                              className="w-full"
-                            >
-                              🔧 Reconfigurer le webhook
                             </Button>
                           </div>
                         </div>

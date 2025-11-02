@@ -25,6 +25,7 @@ export const useEvolutionInstance = () => {
   const lastAutoRefreshFromRef = useRef<string | null>(null);
   const lastRecoveryAttemptRef = useRef<number>(0);
   const lastErrorToastRef = useRef<number>(0);
+  const creationInProgressRef = useRef<boolean>(false);
 
   // Fetch instance from database
   const fetchInstance = async () => {
@@ -59,6 +60,13 @@ export const useEvolutionInstance = () => {
   const createInstance = async (options: { forceRefresh?: boolean; silent?: boolean } = {}) => {
     const { forceRefresh = false, silent = false } = options;
 
+    // Guard: Prevent concurrent creation calls (allow forceRefresh to bypass)
+    if (creationInProgressRef.current && !forceRefresh) {
+      console.log("[useEvolutionInstance] Creation already in progress, skipping duplicate call");
+      return;
+    }
+
+    creationInProgressRef.current = true;
     setLoading(true);
     setError(null);
 
@@ -113,6 +121,7 @@ export const useEvolutionInstance = () => {
         }
       }
     } finally {
+      creationInProgressRef.current = false;
       setLoading(false);
     }
   };
@@ -210,6 +219,16 @@ export const useEvolutionInstance = () => {
       const now = Date.now();
       const cooldown = 60000; // 60 seconds between recovery attempts
 
+      // Skip auto-recovery if instance was just created (within last 10 seconds)
+      // to avoid triggering recovery on brand new instances still waiting for initial QR
+      const instanceAge = instance.created_at ? now - new Date(instance.created_at).getTime() : Infinity;
+      const justCreated = instanceAge < 10000;  // Less than 10 seconds old
+
+      if (justCreated) {
+        console.log("[useEvolutionInstance] Instance just created, skipping auto-recovery (waiting for initial QR)");
+        return;
+      }
+
       if (now - lastRecoveryAttemptRef.current > cooldown) {
         console.log(
           "[useEvolutionInstance] Auto-recovering QR code for connecting instance (silent)"
@@ -218,7 +237,7 @@ export const useEvolutionInstance = () => {
         createInstance({ forceRefresh: true, silent: true });
       }
     }
-  }, [instance?.instance_status, instance?.qr_code, loading]);
+  }, [instance?.instance_status, instance?.qr_code, instance?.created_at, loading]);
 
   return {
     instance,

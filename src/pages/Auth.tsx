@@ -48,16 +48,7 @@ const Auth = () => {
   });
 
   useEffect(() => {
-    const checkAuth = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (session) {
-        navigate("/dashboard");
-      }
-    };
-    checkAuth();
-
+    // Only use onAuthStateChange to avoid duplicate navigation
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -218,6 +209,19 @@ const Auth = () => {
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Connexion..." : "Se connecter"}
               </Button>
+
+              {!isSignUp && (
+                <div className="mt-2 text-center">
+                  <Button
+                    variant="link"
+                    onClick={() => navigate("/forgot-password")}
+                    disabled={loading}
+                    className="text-sm"
+                  >
+                    Mot de passe oublié ?
+                  </Button>
+                </div>
+              )}
             </form>
           )}
 
