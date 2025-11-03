@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
+import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,7 +19,7 @@ Deno.serve(async (req) => {
 
     // Récupérer le user_id depuis le body ou depuis le token
     const bodyData = await req.json();
-    const { conversation_id, message, user_id: providedUserId } = bodyData;
+    const { conversation_id, message, user_id: providedUserId, expected_contact_phone } = bodyData;
 
     let userId: string;
 
@@ -65,6 +66,51 @@ Deno.serve(async (req) => {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // CRITICAL SECURITY CHECK: Verify the phone number matches the expected recipient
+    if (expected_contact_phone) {
+      const conversationPhone = normalizePhoneNumber(conversation.contact_phone);
+      const expectedPhone = normalizePhoneNumber(expected_contact_phone);
+
+      if (conversationPhone !== expectedPhone) {
+        console.error('[send-message] SECURITY VIOLATION: Phone number mismatch detected!', {
+          conversation_id,
+          conversation_phone: conversationPhone,
+          expected_phone: expectedPhone,
+          message_preview: message.substring(0, 100)
+        });
+
+        // Log to database for security audit
+        await supabase.from('ai_logs').insert({
+          user_id: userId,
+          conversation_id: conversation_id,
+          event_type: 'security_violation_send',
+          message: 'ALERTE SÉCURITÉ CRITIQUE: Tentative d\'envoi à un numéro différent BLOQUÉE dans send-whatsapp-message',
+          valid_options: {
+            conversation_phone: conversationPhone,
+            expected_phone: expectedPhone,
+            conversation_id,
+            blocked_message: message.substring(0, 500),
+            severity: 'CRITICAL',
+            timestamp: new Date().toISOString()
+          },
+          created_at: new Date().toISOString()
+        });
+
+        return new Response(JSON.stringify({
+          error: 'Security violation: Phone number mismatch',
+          details: 'The conversation recipient does not match the expected phone number. Message blocked to prevent sending to wrong recipient.'
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log('[send-message] Security check passed - phone numbers match:', conversationPhone);
+    } else {
+      // If no expected_contact_phone is provided, log a warning
+      console.warn('[send-message] WARNING: No expected_contact_phone provided for security validation');
     }
 
     const instance = conversation.instance;

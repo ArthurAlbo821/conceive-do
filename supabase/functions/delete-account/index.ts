@@ -36,6 +36,8 @@ Deno.serve(async (req) => {
 
     // Get user from JWT
     const authHeader = req.headers.get('Authorization');
+    console.log('[delete-account] Authorization header present:', !!authHeader);
+
     if (!authHeader) {
       console.error('[delete-account] Missing authorization header');
       return new Response(
@@ -44,25 +46,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Create Supabase client with user's JWT
-    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
-    });
+    // Extract JWT token from Authorization header
+    const token = authHeader.replace('Bearer ', '');
+    console.log('[delete-account] Token extracted, length:', token.length);
 
-    // Verify user authentication
+    // Create Supabase client with service role for JWT verification
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseServiceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    console.log('[delete-account] Supabase URL:', supabaseUrl);
+    console.log('[delete-account] Service role key present:', !!supabaseServiceRole);
+
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRole);
+
+    // Verify JWT and get user
     const {
       data: { user },
       error: authError,
-    } = await supabase.auth.getUser();
+    } = await supabaseAdmin.auth.getUser(token);
+
+    console.log('[delete-account] User verification result:', {
+      userFound: !!user,
+      userId: user?.id,
+      error: authError?.message
+    });
 
     if (authError || !user) {
       console.error('[delete-account] Authentication failed:', authError);
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
+        JSON.stringify({
+          error: 'Unauthorized',
+          details: authError?.message
+        }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -71,16 +85,12 @@ Deno.serve(async (req) => {
     console.log(`[delete-account] User authenticated: ${userId}`);
     console.log(`[delete-account] Email: ${user.email}`);
 
-    // Create service role client for admin operations
-    const supabaseServiceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRole);
-
     // ============================================================================
     // STEP 1: Get Evolution API instance information
     // ============================================================================
     console.log('[delete-account] Step 1: Retrieving Evolution API instance');
 
-    const { data: instances, error: instanceError } = await supabase
+    const { data: instances, error: instanceError } = await supabaseAdmin
       .from('evolution_instances')
       .select('instance_name, instance_token')
       .eq('user_id', userId)

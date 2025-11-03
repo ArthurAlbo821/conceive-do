@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 import Fuse from 'https://esm.sh/fuse.js@7.0.0';
+import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
@@ -204,8 +205,13 @@ Deno.serve(async (req)=>{
   try {
     const supabase = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '');
     const { conversation_id, user_id, message_text, contact_name, contact_phone } = await req.json();
+
+    // SECURITY: Normalize the phone number from the incoming message
+    const normalizedContactPhone = normalizePhoneNumber(contact_phone);
+
     console.log('[ai-auto-reply] Processing auto-reply for conversation:', conversation_id);
     console.log('[ai-auto-reply] Original message:', message_text);
+    console.log('[ai-auto-reply] Contact phone (normalized):', normalizedContactPhone);
     // Log réception du webhook
     await logAIEvent(supabase, user_id, conversation_id, 'webhook_received', `Message reçu de ${contact_name}`, {
       contact_name,
@@ -904,7 +910,9 @@ CONTEXTE : 20 derniers messages dispo.`;
               body: {
                 conversation_id,
                 message: "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘 Choisis une heure plus tard ?",
-                user_id
+                user_id,
+                // SECURITY: Pass the expected contact phone for additional validation
+                expected_contact_phone: normalizedContactPhone
               }
             });
 
@@ -949,7 +957,9 @@ CONTEXTE : 20 derniers messages dispo.`;
               body: {
                 conversation_id,
                 message: `Parfait bébé ! On se voit ${appointmentData.appointment_date} à ${appointmentData.appointment_time} 😘`,
-                user_id
+                user_id,
+                // SECURITY: Pass the expected contact phone for additional validation
+                expected_contact_phone: normalizedContactPhone
               }
             });
 
@@ -996,7 +1006,9 @@ CONTEXTE : 20 derniers messages dispo.`;
               body: {
                 conversation_id,
                 message: "Oups, un petit problème de mon côté... Tu peux réessayer ou me rappeler dans 5 min ?",
-                user_id
+                user_id,
+                // SECURITY: Pass the expected contact phone for additional validation
+                expected_contact_phone: normalizedContactPhone
               }
             });
             return new Response(JSON.stringify({
@@ -1039,7 +1051,9 @@ Aujourd'hui ${appointmentData.appointment_time}
             body: {
               conversation_id,
               message: confirmationMessage,
-              user_id
+              user_id,
+              // SECURITY: Pass the expected contact phone for additional validation
+              expected_contact_phone: normalizedContactPhone
             }
           });
           if (sendError) {
@@ -1084,7 +1098,9 @@ Aujourd'hui ${appointmentData.appointment_time}
             body: {
               conversation_id,
               message: "Attends, j'ai mal compris un truc. On reprend depuis le début ?",
-              user_id
+              user_id,
+              // SECURITY: Pass the expected contact phone for additional validation
+              expected_contact_phone: normalizedContactPhone
             }
           });
           return new Response(JSON.stringify({
@@ -1103,12 +1119,68 @@ Aujourd'hui ${appointmentData.appointment_time}
     // Normal conversational response (no tool call)
     const aiResponse = messageResponse.content;
     console.log('[ai-auto-reply] Normal response:', aiResponse);
+
+    // SECURITY: Verify conversation before sending response
+    // This prevents sending messages to the wrong number if conversation was merged/changed
+    const { data: conversationCheck, error: convCheckError } = await supabase
+      .from('conversations')
+      .select('contact_phone')
+      .eq('id', conversation_id)
+      .single();
+
+    if (convCheckError || !conversationCheck) {
+      console.error('[ai-auto-reply] SECURITY: Cannot verify conversation before sending:', convCheckError);
+      await logAIEvent(supabase, user_id, conversation_id, 'security_check_failed', 'SÉCURITÉ: Impossible de vérifier la conversation avant envoi', {
+        error: convCheckError,
+        original_contact_phone: normalizedContactPhone,
+        conversation_id
+      });
+      return new Response(JSON.stringify({
+        error: 'Security check failed: conversation not found'
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Normalize the conversation's contact_phone for comparison
+    const conversationPhone = normalizePhoneNumber(conversationCheck.contact_phone);
+
+    // CRITICAL SECURITY CHECK: Ensure the conversation's phone matches the incoming message phone
+    if (conversationPhone !== normalizedContactPhone) {
+      console.error('[ai-auto-reply] SECURITY ALERT: Phone number mismatch detected!', {
+        incoming_message_phone: normalizedContactPhone,
+        conversation_phone: conversationPhone,
+        conversation_id
+      });
+
+      await logAIEvent(supabase, user_id, conversation_id, 'security_violation', 'ALERTE SÉCURITÉ: Tentative d\'envoi à un numéro différent BLOQUÉE', {
+        incoming_message_phone: normalizedContactPhone,
+        conversation_phone: conversationPhone,
+        conversation_id,
+        blocked_message: aiResponse,
+        severity: 'CRITICAL'
+      });
+
+      return new Response(JSON.stringify({
+        error: 'Security violation: phone number mismatch',
+        details: 'Message blocked to prevent sending to wrong recipient'
+      }), {
+        status: 403,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    console.log('[ai-auto-reply] Security check passed - phone numbers match');
+
     // Send the AI response via send-whatsapp-message
     const { data: sendData, error: sendError } = await supabase.functions.invoke('send-whatsapp-message', {
       body: {
         conversation_id,
         message: aiResponse,
-        user_id
+        user_id,
+        // SECURITY: Pass the expected contact phone for additional validation
+        expected_contact_phone: normalizedContactPhone
       }
     });
     if (sendError) {

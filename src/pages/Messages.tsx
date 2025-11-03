@@ -10,7 +10,7 @@ import { Navbar } from "@/components/Navbar";
 import { ConversationList } from "@/components/messages/ConversationList";
 import { MessageThread } from "@/components/messages/MessageThread";
 import { MessageInput } from "@/components/messages/MessageInput";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 
@@ -30,7 +30,6 @@ const Messages = () => {
     selectedConversation?.contact_phone || null,
     (newId) => setSelectedConversationId(newId)
   );
-  const [merging, setMerging] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -76,39 +75,6 @@ const Messages = () => {
     });
   };
 
-  const handleMergeConversations = async () => {
-    setMerging(true);
-    try {
-      // First sanitize JIDs to normalize @lid entries
-      const { error: sanitizeError } = await supabase.functions.invoke("sanitize-jids");
-      if (sanitizeError) {
-        console.error("Error sanitizing JIDs:", sanitizeError);
-      }
-
-      // Then merge duplicate conversations
-      const { data, error } = await supabase.functions.invoke("merge-conversations");
-
-      if (error) throw error;
-
-      toast({
-        title: "Conversations fusionnées",
-        description: `${data.merged_groups} groupes fusionnés, ${data.moved_messages} messages déplacés`,
-      });
-
-      // Refetch conversations
-      window.location.reload();
-    } catch (error) {
-      console.error("Error merging conversations:", error);
-      toast({
-        title: "Erreur",
-        description: "Impossible de fusionner les conversations",
-        variant: "destructive",
-      });
-    } finally {
-      setMerging(false);
-    }
-  };
-
   if (!instance || instance.instance_status !== "connected") {
     return (
       <SidebarProvider>
@@ -135,27 +101,6 @@ const Messages = () => {
           <Navbar />
           <div className="flex-1 flex h-full overflow-hidden">
             <div className="w-80 border-r flex flex-col h-full">
-              <div className="p-3 border-b">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleMergeConversations}
-                  disabled={merging || loadingConv}
-                  className="w-full"
-                >
-                  {merging ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Fusion en cours...
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Nettoyer et fusionner
-                    </>
-                  )}
-                </Button>
-              </div>
               <div className="flex-1 overflow-hidden">
                 {loadingConv ? (
                   <div className="flex items-center justify-center h-full">

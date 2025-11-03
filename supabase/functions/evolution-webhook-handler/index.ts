@@ -5,6 +5,7 @@ import {
   sanitizeError,
   validateWebhookPayload,
 } from "../_shared/webhook-security.ts";
+import { normalizePhoneNumber } from "../_shared/normalize-phone.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,10 +14,9 @@ const corsHeaders = {
 };
 
 // Normalize WhatsApp JID to clean phone number - strict numeric only
+// Using shared normalization function for consistency across the entire app
 function normalizeJid(jid: string): string {
-  if (!jid) return "";
-  // Remove known suffixes and all non-numeric characters
-  return jid.split("@")[0].replace(/\D/g, "");
+  return normalizePhoneNumber(jid);
 }
 
 // Resolve LID to real phone number by searching in payload or calling Evolution API
