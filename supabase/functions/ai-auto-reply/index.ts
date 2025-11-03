@@ -109,12 +109,12 @@ async function parseDucklingEntities(text: string, referenceTime?: Date) {
   try {
     // Try multiple request formats (Duckling API can be finicky)
     const requestFormats = [
-      // Format 1: Form-urlencoded (most common)
+      // Format 1: Form-urlencoded WITHOUT reftime (works with rasa/duckling)
       async () => {
         const params = new URLSearchParams({
           text,
-          locale: 'fr_FR',
-          reftime: refTime.toISOString()
+          locale: 'fr_FR'
+          // Note: reftime causes 502 on rasa/duckling Docker image
         });
 
         const response = await fetch(ducklingUrl, {
@@ -126,17 +126,18 @@ async function parseDucklingEntities(text: string, referenceTime?: Date) {
 
         return response;
       },
-      // Format 2: JSON
+      // Format 2: With dims parameter for specificity
       async () => {
+        const params = new URLSearchParams({
+          text,
+          locale: 'fr_FR',
+          dims: 'time'
+        });
+
         const response = await fetch(ducklingUrl, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text,
-            locale: 'fr_FR',
-            reftime: refTime.toISOString(),
-            tz: 'Europe/Paris'
-          }),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
           signal: AbortSignal.timeout(10000)
         });
 
