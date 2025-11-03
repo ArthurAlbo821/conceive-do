@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 import Fuse from 'https://esm.sh/fuse.js@7.0.0';
+import * as chrono from 'chrono-node';
 import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -33,40 +34,43 @@ function toFranceTime(utcDate: Date): Date {
   return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
 }
 
-// Duckling API configuration
-const DUCKLING_API_URL = 'https://duckling.wit.ai/parse';
-async function parseDucklingEntities(text, referenceTime) {
+// Temporal parsing using Chrono-node (local, no external API dependency)
+async function parseTemporalEntities(text: string, referenceTime?: Date) {
   const refTime = referenceTime || new Date();
-  const refTimeISO = refTime.toISOString();
   try {
-    const response = await fetch(DUCKLING_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      },
-      body: new URLSearchParams({
-        text: text,
-        reftime: refTimeISO,
-        locale: 'fr_FR',
-        dims: JSON.stringify([
-          'time',
-          'duration'
-        ])
-      })
+    // Use French parser for French temporal expressions
+    const results = chrono.fr.parse(text, refTime);
+
+    console.log('[temporal] Parsing text:', text);
+    console.log('[temporal] Reference time:', refTime.toISOString());
+    console.log('[temporal] Found', results.length, 'temporal entities');
+
+    // Convert Chrono results to Duckling-compatible format for backward compatibility
+    const entities = results.map(result => {
+      const parsedDate = result.start.date();
+      return {
+        body: result.text,
+        dim: 'time',
+        value: {
+          value: parsedDate.toISOString(),
+          grain: 'hour' // Chrono doesn't provide grain, default to hour
+        },
+        start: result.index,
+        end: result.index + result.text.length
+      };
     });
-    if (!response.ok) {
-      console.error('[duckling] API error:', response.status);
-      return [];
+
+    if (entities.length > 0) {
+      console.log('[temporal] Parsed entities:', JSON.stringify(entities, null, 2));
     }
-    const entities = await response.json();
-    console.log('[duckling] Parsed entities:', JSON.stringify(entities, null, 2));
+
     return entities;
   } catch (error) {
-    console.error('[duckling] Parse error:', error);
+    console.error('[temporal] Parse error:', error);
     return [];
   }
 }
-function enrichMessageWithDuckling(originalMessage, entities) {
+function enrichMessageWithTemporal(originalMessage, entities) {
   if (entities.length === 0) return originalMessage;
   let enrichedMessage = originalMessage;
   const timeEntities = entities.filter((e)=>e.dim === 'time' && e.value.value);
@@ -222,17 +226,17 @@ Deno.serve(async (req)=>{
     // Get current date for temporal parsing (in France timezone)
     const nowUTC = new Date();
     const now = toFranceTime(nowUTC);
-    // Parse temporal expressions with Duckling (using France time)
-    const ducklingEntities = await parseDucklingEntities(message_text, now);
-    const enrichedMessage = enrichMessageWithDuckling(message_text, ducklingEntities);
+    // Parse temporal expressions with Chrono-node (using France time)
+    const temporalEntities = await parseTemporalEntities(message_text, now);
+    const enrichedMessage = enrichMessageWithTemporal(message_text, temporalEntities);
     if (enrichedMessage !== message_text) {
-      console.log('[ai-auto-reply] Message enriched with Duckling:', enrichedMessage);
-      // Log enrichissement Duckling
-      await logAIEvent(supabase, user_id, conversation_id, 'duckling_enriched', 'Expressions temporelles détectées et converties', {
+      console.log('[ai-auto-reply] Message enriched with temporal parsing:', enrichedMessage);
+      // Log enrichissement temporel
+      await logAIEvent(supabase, user_id, conversation_id, 'temporal_enriched', 'Expressions temporelles détectées et converties', {
         original_message: message_text,
         enriched_message: enrichedMessage,
-        entities_count: ducklingEntities.length,
-        entities: ducklingEntities.map((e)=>({
+        entities_count: temporalEntities.length,
+        entities: temporalEntities.map((e)=>({
             text: e.body,
             dim: e.dim,
             value: e.value.value
