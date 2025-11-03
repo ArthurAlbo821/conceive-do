@@ -55,9 +55,55 @@ export type Database = {
           },
         ]
       }
+      appointment_notifications: {
+        Row: {
+          appointment_id: string
+          created_at: string | null
+          error_details: Json | null
+          id: string
+          message_text: string
+          notification_type: string
+          sent_at: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          appointment_id: string
+          created_at?: string | null
+          error_details?: Json | null
+          id?: string
+          message_text: string
+          notification_type: string
+          sent_at?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          appointment_id?: string
+          created_at?: string | null
+          error_details?: Json | null
+          id?: string
+          message_text?: string
+          notification_type?: string
+          sent_at?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "appointment_notifications_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       appointments: {
         Row: {
           appointment_date: string
+          client_arrival_detected_at: string | null
+          client_arrived: boolean | null
           contact_name: string
           contact_phone: string
           conversation_id: string | null
@@ -66,6 +112,7 @@ export type Database = {
           end_time: string
           id: string
           notes: string | null
+          provider_ready_to_receive: boolean | null
           service: string | null
           start_time: string
           status: string
@@ -74,6 +121,8 @@ export type Database = {
         }
         Insert: {
           appointment_date: string
+          client_arrival_detected_at?: string | null
+          client_arrived?: boolean | null
           contact_name: string
           contact_phone: string
           conversation_id?: string | null
@@ -82,6 +131,7 @@ export type Database = {
           end_time: string
           id?: string
           notes?: string | null
+          provider_ready_to_receive?: boolean | null
           service?: string | null
           start_time: string
           status?: string
@@ -90,6 +140,8 @@ export type Database = {
         }
         Update: {
           appointment_date?: string
+          client_arrival_detected_at?: string | null
+          client_arrived?: boolean | null
           contact_name?: string
           contact_phone?: string
           conversation_id?: string | null
@@ -98,6 +150,7 @@ export type Database = {
           end_time?: string
           id?: string
           notes?: string | null
+          provider_ready_to_receive?: boolean | null
           service?: string | null
           start_time?: string
           status?: string
@@ -147,8 +200,10 @@ export type Database = {
           created_at: string | null
           id: string
           instance_id: string
+          is_pinned: boolean | null
           last_message_at: string | null
           last_message_text: string | null
+          pinned_at: string | null
           unread_count: number | null
           updated_at: string | null
           user_id: string
@@ -160,8 +215,10 @@ export type Database = {
           created_at?: string | null
           id?: string
           instance_id: string
+          is_pinned?: boolean | null
           last_message_at?: string | null
           last_message_text?: string | null
+          pinned_at?: string | null
           unread_count?: number | null
           updated_at?: string | null
           user_id: string
@@ -173,8 +230,10 @@ export type Database = {
           created_at?: string | null
           id?: string
           instance_id?: string
+          is_pinned?: boolean | null
           last_message_at?: string | null
           last_message_text?: string | null
+          pinned_at?: string | null
           unread_count?: number | null
           updated_at?: string | null
           user_id?: string
@@ -188,6 +247,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      evolution_instance_creation_queue: {
+        Row: {
+          created_at: string | null
+          error_message: string | null
+          id: string
+          processed_at: string | null
+          request_id: string
+          retry_count: number | null
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          processed_at?: string | null
+          request_id: string
+          retry_count?: number | null
+          status: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          error_message?: string | null
+          id?: string
+          processed_at?: string | null
+          request_id?: string
+          retry_count?: number | null
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       evolution_instances: {
         Row: {
@@ -325,10 +420,15 @@ export type Database = {
       }
       user_informations: {
         Row: {
+          access_instructions: string | null
           adresse: string | null
           created_at: string
+          door_code: string | null
+          elevator_info: string | null
           extras: Json | null
+          floor: string | null
           id: string
+          notification_phone: string | null
           prestations: Json | null
           taboos: Json | null
           tarifs: Json | null
@@ -336,10 +436,15 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          access_instructions?: string | null
           adresse?: string | null
           created_at?: string
+          door_code?: string | null
+          elevator_info?: string | null
           extras?: Json | null
+          floor?: string | null
           id?: string
+          notification_phone?: string | null
           prestations?: Json | null
           taboos?: Json | null
           tarifs?: Json | null
@@ -347,10 +452,15 @@ export type Database = {
           user_id: string
         }
         Update: {
+          access_instructions?: string | null
           adresse?: string | null
           created_at?: string
+          door_code?: string | null
+          elevator_info?: string | null
           extras?: Json | null
+          floor?: string | null
           id?: string
+          notification_phone?: string | null
           prestations?: Json | null
           taboos?: Json | null
           tarifs?: Json | null
@@ -364,7 +474,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      complete_appointment_and_unpin: {
+        Args: { p_appointment_id: string }
+        Returns: Json
+      }
+      get_todays_appointments_with_status: {
+        Args: { p_user_id: string }
+        Returns: {
+          appointment_id: string
+          client_arrival_detected_at: string
+          client_arrived: boolean
+          contact_name: string
+          contact_phone: string
+          conversation_id: string
+          end_time: string
+          provider_ready_to_receive: boolean
+          service: string
+          start_time: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

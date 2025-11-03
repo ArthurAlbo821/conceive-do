@@ -533,15 +533,31 @@ Heure : ${todayAppointment.start_time}
 Client arrivé : ${clientArrived ? 'OUI' : 'NON'}
 Provider prêt à recevoir : ${providerReady ? 'OUI' : 'NON'}
 
-${!providerReady && clientArrived ? `⚠️ IMPORTANT : Le client est arrivé MAIS tu n'es PAS ENCORE prêt(e).
-Tu DOIS faire patienter le client avec des excuses variées :
-- "J'arrive dans 2 minutes, je finis de me préparer 😊"
-- "Une seconde bébé, je termine un truc"
-- "Attends-moi 2 min, j'arrive"
-- "Je descends dans une minute"
-Ne JAMAIS donner les infos d'accès (code, étage, etc.) - elles seront envoyées automatiquement quand tu seras prêt(e).` : ''}
+${!providerReady && clientArrived ? `⚠️ SITUATION ACTUELLE : Le client est arrivé MAIS tu n'es PAS ENCORE prêt(e) !
 
-${providerReady && clientArrived ? `✅ Client arrivé et tu es prêt(e) - Les infos d'accès ont déjà été envoyées automatiquement.` : ''}`;
+🎯 TON OBJECTIF : Faire patienter le client gentiment avec des excuses variées
+
+📝 EXEMPLES DE MESSAGES D'ATTENTE (varie-les à chaque fois) :
+- "J'arrive bb, je finis vite de me préparer 😘"
+- "2-3 min bébé, je me prépare pour toi ❤️"
+- "Patience bb, j'arrive dans 5 min 😊"
+- "Je te préviens dès que j'ai fini de me préparer"
+- "Encore quelques minutes bébé 💋"
+- "Je finis de me préparer, 2 min 😘"
+- "J'arrive tout de suite bb ❤️"
+- "Patience, je me fais belle pour toi 😊"
+
+⚠️ RÈGLES IMPORTANTES :
+- VARIE tes réponses si le client envoie plusieurs messages
+- Mentionne des durées approximatives (2-3 min, 5 min, quelques minutes)
+- Reste amicale et décontractée avec emojis
+- NE JAMAIS dire "monte" ou "monte bb" tant que tu n'es pas prête
+- NE JAMAIS donner les codes d'accès (ils seront envoyés automatiquement quand tu seras prête)` : ''}
+
+${providerReady && clientArrived ? `✅ SITUATION ACTUELLE : Client arrivé et tu es prêt(e) !
+
+Les infos d'accès (code, étage, etc.) ont déjà été envoyées automatiquement au client.
+Tu peux répondre normalement à ses questions s'il en a.` : ''}`;
     }
     // Build system prompt (conditional based on appointment status)
     let systemPrompt;
@@ -558,29 +574,32 @@ Service : ${todayAppointment.service}
 
 TON RÔLE :
 - Faire patienter le client avec des messages COURTS et friendly
-- Détecter quand il dit qu'il est arrivé ("je suis là", "suis arrivé", "devant", etc.)
+- Détection automatique quand il dit qu'il est arrivé ("je suis là", "suis arrivé", "devant", etc.)
 - NE PAS recollect des infos
 - NE PAS créer de nouveau RDV
 - NE PAS poser de questions sur durée/extras/heure
 - NE PAS donner les codes d'accès (ils seront envoyés automatiquement quand tu seras prête)
 
 STYLE :
-- TRÈS court (max 5-8 mots par message)
+- TRÈS court (max 5-10 mots par message)
 - Friendly, sexy, décontracté
 - Première personne, tutoiement
 - Émojis OK pour ce mode
 
-EXEMPLES DE RÉPONSES :
+EXEMPLES DE RÉPONSES GÉNÉRALES (avant que le client arrive) :
 - "J'arrive bébé 😘"
-- "2 min je me prépare"
-- "Monte bb"
+- "Je me prépare pour toi ❤️"
 - "J'arrive tout de suite"
-- "Patience ❤️"
+- "Patience bb ❤️"
 - "Je finis et j'arrive"
+- "Bientôt prête 😊"
 
 ${appointmentStatusContext}
 
-IMPORTANT : Tu NE peux PAS donner les codes d'accès toi-même. Ils seront envoyés automatiquement quand tu seras prête à recevoir.`;
+RAPPEL IMPORTANT :
+- Tu NE peux PAS donner les codes d'accès toi-même
+- Les infos d'accès seront envoyées AUTOMATIQUEMENT quand tu seras prête à recevoir
+- Suis les instructions dans "SITUATION ACTUELLE" ci-dessus selon le statut du client`;
 
     } else {
       // MODE WORKFLOW: No confirmed appointment today - full booking workflow
@@ -1034,6 +1053,20 @@ CONTEXTE : 20 derniers messages dispo.`;
             extras: appointmentData.selected_extras,
             status: 'confirmed'
           });
+
+          // Send notification to provider about new appointment
+          console.log('[ai-auto-reply] Sending notification to provider for new appointment');
+          try {
+            await supabase.functions.invoke('send-provider-notification', {
+              body: {
+                appointment_id: newAppointment.id,
+                notification_type: 'new_appointment'
+              }
+            });
+          } catch (notifError) {
+            // Don't fail appointment creation if notification fails
+            console.error('[ai-auto-reply] Failed to send provider notification:', notifError);
+          }
           // Format confirmation message with backend-calculated prices
           const dateObj = new Date(appointmentData.appointment_date);
           const dayName = DAYS[dateObj.getDay()];
@@ -1228,14 +1261,21 @@ Aujourd'hui ${appointmentData.appointment_time}
       const arrivalDetected = arrivalKeywords.some((keyword)=>messageTextLower.includes(keyword));
       if (arrivalDetected) {
         console.log('[ai-auto-reply] Client arrival detected for appointment:', todayAppointment.id);
-        // Update appointment to mark client as arrived
-        const { error: updateError } = await supabase.from('appointments').update({
+        console.log('[ai-auto-reply] Message that triggered arrival detection:', message_text);
+        console.log('[ai-auto-reply] Keywords matched:', arrivalKeywords.filter((kw)=>messageTextLower.includes(kw)));
+
+        // Update appointment to mark client as arrived - using supabaseAdmin to bypass RLS
+        const { data: updateData, error: updateError } = await supabaseAdmin.from('appointments').update({
           client_arrived: true,
           client_arrival_detected_at: new Date().toISOString()
-        }).eq('id', todayAppointment.id);
+        }).eq('id', todayAppointment.id).select();
+
         if (updateError) {
           console.error('[ai-auto-reply] Failed to update client arrival status:', updateError);
+          console.error('[ai-auto-reply] Update error details:', JSON.stringify(updateError, null, 2));
         } else {
+          console.log('[ai-auto-reply] Successfully updated client_arrived to true');
+          console.log('[ai-auto-reply] Updated appointment data:', updateData);
           // Log client arrival detection
           await logAIEvent(supabase, user_id, conversation_id, 'client_arrival_detected', 'Arrivée du client détectée automatiquement', {
             appointment_id: todayAppointment.id,
@@ -1243,6 +1283,20 @@ Aujourd'hui ${appointmentData.appointment_time}
             message_trigger: message_text,
             keywords_matched: arrivalKeywords.filter((kw)=>messageTextLower.includes(kw))
           });
+
+          // Send notification to provider about client arrival
+          console.log('[ai-auto-reply] Sending notification to provider for client arrival');
+          try {
+            await supabase.functions.invoke('send-provider-notification', {
+              body: {
+                appointment_id: todayAppointment.id,
+                notification_type: 'client_arrived'
+              }
+            });
+          } catch (notifError) {
+            // Don't fail the flow if notification fails
+            console.error('[ai-auto-reply] Failed to send client arrival notification:', notifError);
+          }
         }
       }
     }

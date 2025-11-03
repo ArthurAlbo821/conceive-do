@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, X, FileText, Lock } from "lucide-react";
+import { Plus, X, FileText, Lock, Bell } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,15 @@ const informationsSchema = z.object({
 
   adresse: z.string().optional(),
 
+  // Notification phone number (international format)
+  notification_phone: z
+    .string()
+    .optional()
+    .refine(
+      (val) => !val || /^\+[1-9]\d{1,14}$/.test(val),
+      "Format invalide. Utilisez le format international : +33612345678"
+    ),
+
   // Access information fields
   door_code: z.string().optional(),
   floor: z.string().optional(),
@@ -72,6 +81,7 @@ const Informations = () => {
       taboos: [],
       tarifs: [],
       adresse: "",
+      notification_phone: "",
       door_code: "",
       floor: "",
       elevator_info: "",
@@ -113,6 +123,7 @@ const Informations = () => {
       taboos: data.taboos.map((t) => ({ id: t.id, name: t.name })),
       tarifs: data.tarifs.map((t) => ({ id: t.id, duration: t.duration, price: t.price })),
       adresse: data.adresse || "",
+      notification_phone: data.notification_phone || "",
       door_code: data.door_code || "",
       floor: data.floor || "",
       elevator_info: data.elevator_info || "",
@@ -392,6 +403,48 @@ const Informations = () => {
                         </FormItem>
                       )}
                     />
+                  </CardContent>
+                </Card>
+
+                {/* Numéro de Notification */}
+                <Card className="border-blue-200 bg-blue-50/50">
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      <Bell className="h-5 w-5 text-blue-600" />
+                      <CardTitle className="text-blue-900">Numéro de notification</CardTitle>
+                    </div>
+                    <CardDescription className="text-blue-700">
+                      Votre numéro WhatsApp personnel pour recevoir les notifications de nouveaux rendez-vous et d'arrivée de clients.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="notification_phone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormControl>
+                            <Input
+                              placeholder="+33612345678"
+                              {...field}
+                              className="font-mono"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="bg-blue-100 border border-blue-300 rounded-md p-3 text-sm text-blue-800">
+                      <p className="font-semibold mb-1">ℹ️ Format requis :</p>
+                      <p className="mb-2">Le numéro doit être au format international (E.164) avec le préfixe pays.</p>
+                      <p className="font-mono text-xs">
+                        Exemples valides : +33612345678, +14155551234, +447911123456
+                      </p>
+                      <p className="mt-2 text-xs text-blue-700">
+                        Si ce champ est vide, vous ne recevrez pas de notifications WhatsApp.
+                      </p>
+                    </div>
                   </CardContent>
                 </Card>
 

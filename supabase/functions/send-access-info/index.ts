@@ -334,6 +334,20 @@ serve(async (req) => {
       created_at: new Date().toISOString(),
     });
 
+    // Send notification to provider that access info was sent
+    console.log('[send-access-info] Sending notification to provider');
+    try {
+      await supabaseClient.functions.invoke('send-provider-notification', {
+        body: {
+          appointment_id: appointment_id,
+          notification_type: 'access_info_sent'
+        }
+      });
+    } catch (notifError) {
+      // Don't fail the response if notification fails
+      console.error('[send-access-info] Failed to send provider notification:', notifError);
+    }
+
     return new Response(
       JSON.stringify({
         success: true,

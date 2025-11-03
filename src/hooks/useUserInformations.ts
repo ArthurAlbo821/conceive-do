@@ -33,6 +33,7 @@ export interface UserInformations {
   taboos: Taboo[];
   tarifs: Tarif[];
   adresse: string;
+  notification_phone?: string;
   door_code?: string;
   floor?: string;
   elevator_info?: string;
@@ -67,6 +68,7 @@ export const useUserInformations = () => {
           taboos: [],
           tarifs: [],
           adresse: "",
+          notification_phone: "",
           door_code: "",
           floor: "",
           elevator_info: "",
@@ -83,6 +85,7 @@ export const useUserInformations = () => {
         taboos: (data.taboos as unknown as Taboo[]) || [],
         tarifs: (data.tarifs as unknown as Tarif[]) || [],
         adresse: data.adresse || "",
+        notification_phone: data.notification_phone || "",
         door_code: data.door_code || "",
         floor: data.floor || "",
         elevator_info: data.elevator_info || "",
@@ -106,6 +109,7 @@ export const useUserInformations = () => {
           taboos: data.taboos as unknown as Json,
           tarifs: data.tarifs as unknown as Json,
           adresse: data.adresse || "",
+          notification_phone: data.notification_phone || "",
           door_code: data.door_code || "",
           floor: data.floor || "",
           elevator_info: data.elevator_info || "",
