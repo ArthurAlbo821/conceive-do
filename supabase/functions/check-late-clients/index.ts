@@ -7,6 +7,32 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+// Timezone configuration - All users are in France
+const USER_TIMEZONE = 'Europe/Paris';
+
+// Helper function to convert UTC Date to France timezone
+function toFranceTime(utcDate: Date): Date {
+  // Use Intl API to get France time string
+  const franceTimeString = utcDate.toLocaleString('en-US', {
+    timeZone: USER_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
+  // Parse: "MM/DD/YYYY, HH:MM:SS" format from en-US locale
+  const [datePart, timePart] = franceTimeString.split(', ');
+  const [month, day, year] = datePart.split('/');
+  const [hour, minute, second] = timePart.split(':');
+
+  // Create date object representing France time (without timezone info)
+  return new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
+}
+
 /**
  * Cron job that checks for appointments where:
  * - Appointment time has passed by 5+ minutes
@@ -28,7 +54,9 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
 
-    const now = new Date();
+    // Use France timezone for all time comparisons
+    const nowUtc = new Date();
+    const now = toFranceTime(nowUtc);
     const currentTime = now.toLocaleTimeString("en-US", {
       hour12: false,
       hour: "2-digit",
@@ -36,10 +64,10 @@ serve(async (req) => {
       second: "2-digit",
     });
 
-    console.log(`[check-late-clients] Running at ${currentTime}`);
+    console.log(`[check-late-clients] Running at ${currentTime} (France time)`);
 
     // Find appointments that are 5+ minutes late
-    // Current time minus 5 minutes
+    // Current time minus 5 minutes (in France timezone)
     const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
     const fiveMinutesAgoTime = fiveMinutesAgo.toLocaleTimeString("en-US", {
       hour12: false,
@@ -63,7 +91,7 @@ serve(async (req) => {
         client_arrival_detected_at
       `
         )
-        .eq("appointment_date", now.toISOString().split("T")[0]) // Today only
+        .eq("appointment_date", now.toISOString().split("T")[0]) // Today in France timezone
         .eq("status", "confirmed")
         .eq("client_arrived", false) // Client hasn't indicated arrival
         .is("client_arrival_detected_at", null) // No reminder sent yet

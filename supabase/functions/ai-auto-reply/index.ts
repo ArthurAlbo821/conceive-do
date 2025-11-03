@@ -894,8 +894,12 @@ CONTEXTE : 20 derniers messages dispo.`;
           const endTime = `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
 
           // CRITICAL: Server-side validation to prevent appointments too close to current time
-          // Use France time for validation
-          let appointmentDateTime = new Date(`${appointmentData.appointment_date}T${appointmentData.appointment_time}`);
+          // Parse appointment time as France timezone for accurate comparison
+          const appointmentDateTimeStr = `${appointmentData.appointment_date}T${appointmentData.appointment_time}:00`;
+
+          // Create appointment date in France timezone (same way as 'now')
+          // This ensures both dates are in the same timezone for accurate comparison
+          let appointmentDateTime = toFranceTime(new Date(appointmentDateTimeStr));
           const now = toFranceTime(new Date());
 
           // Handle midnight-crossing appointments: if the appointment time is in the past, it must be for tomorrow
@@ -992,14 +996,16 @@ CONTEXTE : 20 derniers messages dispo.`;
           }
 
           // Insert appointment into database
+          // NOTE: start_time and end_time are stored as TIME type (no timezone)
+          // These times MUST always be interpreted as France timezone (Europe/Paris)
           const { data: newAppointment, error: insertError } = await supabase.from('appointments').insert({
             user_id: user_id,
             conversation_id: conversation_id,
             contact_name: contact_name,
             contact_phone: contact_phone,
             appointment_date: finalAppointmentDate,
-            start_time: appointmentData.appointment_time,
-            end_time: endTime,
+            start_time: appointmentData.appointment_time, // France timezone
+            end_time: endTime, // France timezone
             duration_minutes: durationMinutes,
             service: 'Toutes prestations incluses',
             notes: appointmentData.selected_extras.length > 0 ? `Extras: ${appointmentData.selected_extras.join(', ')}` : null,
@@ -1264,8 +1270,8 @@ Aujourd'hui ${appointmentData.appointment_time}
         console.log('[ai-auto-reply] Message that triggered arrival detection:', message_text);
         console.log('[ai-auto-reply] Keywords matched:', arrivalKeywords.filter((kw)=>messageTextLower.includes(kw)));
 
-        // Update appointment to mark client as arrived - using supabaseAdmin to bypass RLS
-        const { data: updateData, error: updateError } = await supabaseAdmin.from('appointments').update({
+        // Update appointment to mark client as arrived - using supabase with SERVICE_ROLE_KEY to bypass RLS
+        const { data: updateData, error: updateError } = await supabase.from('appointments').update({
           client_arrived: true,
           client_arrival_detected_at: new Date().toISOString()
         }).eq('id', todayAppointment.id).select();
