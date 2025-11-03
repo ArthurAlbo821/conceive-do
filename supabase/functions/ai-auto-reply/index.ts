@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 import Fuse from 'https://esm.sh/fuse.js@7.0.0';
-import * as chrono from 'chrono-node';
+import * as chrono from 'https://esm.sh/chrono-node@2.9.0';
 import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -95,6 +95,129 @@ function enrichMessageWithTemporal(originalMessage, entities) {
     enrichedMessage += ']';
   }
   return enrichedMessage;
+}
+
+// Duckling parsing (self-hosted on Railway)
+async function parseDucklingEntities(text: string, referenceTime?: Date) {
+  const refTime = referenceTime || new Date();
+  const ducklingUrl = Deno.env.get('DUCKLING_API_URL') || 'https://duckling-production-0c9c.up.railway.app/parse';
+
+  console.log('[duckling] Parsing text:', text);
+  console.log('[duckling] Reference time:', refTime.toISOString());
+  console.log('[duckling] URL:', ducklingUrl);
+
+  try {
+    // Try multiple request formats (Duckling API can be finicky)
+    const requestFormats = [
+      // Format 1: Form-urlencoded (most common)
+      async () => {
+        const params = new URLSearchParams({
+          text,
+          locale: 'fr_FR',
+          reftime: refTime.toISOString()
+        });
+
+        const response = await fetch(ducklingUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+          signal: AbortSignal.timeout(10000) // 10 second timeout
+        });
+
+        return response;
+      },
+      // Format 2: JSON
+      async () => {
+        const response = await fetch(ducklingUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            locale: 'fr_FR',
+            reftime: refTime.toISOString(),
+            tz: 'Europe/Paris'
+          }),
+          signal: AbortSignal.timeout(10000)
+        });
+
+        return response;
+      }
+    ];
+
+    let lastError = null;
+
+    // Try each format
+    for (let i = 0; i < requestFormats.length; i++) {
+      try {
+        console.log(`[duckling] Trying request format ${i + 1}/${requestFormats.length}`);
+        const response = await requestFormats[i]();
+
+        if (!response.ok) {
+          lastError = `HTTP ${response.status}: ${response.statusText}`;
+          console.log(`[duckling] Format ${i + 1} failed: ${lastError}`);
+          continue;
+        }
+
+        const responseText = await response.text();
+
+        // Check if response is JSON
+        let entities;
+        try {
+          entities = JSON.parse(responseText);
+        } catch {
+          // Not JSON, might be error message
+          lastError = `Non-JSON response: ${responseText.substring(0, 100)}`;
+          console.log(`[duckling] Format ${i + 1} returned non-JSON: ${lastError}`);
+          continue;
+        }
+
+        // Success!
+        console.log('[duckling] Found', entities.length, 'temporal entities');
+        if (entities.length > 0) {
+          console.log('[duckling] Parsed entities:', JSON.stringify(entities, null, 2));
+        }
+
+        return entities;
+
+      } catch (formatError) {
+        lastError = formatError.message;
+        console.log(`[duckling] Format ${i + 1} threw error: ${lastError}`);
+      }
+    }
+
+    // All formats failed
+    throw new Error(`All request formats failed. Last error: ${lastError}`);
+
+  } catch (error) {
+    console.error('[duckling] Parse error:', error);
+    throw error; // Re-throw to trigger fallback
+  }
+}
+
+// Smart fallback: Try Duckling first, fall back to Chrono-node if it fails
+async function parseTemporalWithFallback(text: string, referenceTime?: Date) {
+  const refTime = referenceTime || new Date();
+
+  // Try Duckling first (if DUCKLING_API_URL is configured)
+  const ducklingUrl = Deno.env.get('DUCKLING_API_URL');
+  if (ducklingUrl) {
+    console.log('[temporal] Attempting Duckling parse...');
+    try {
+      const entities = await parseDucklingEntities(text, refTime);
+      console.log('[temporal] ✅ Duckling parse successful');
+      return { entities, method: 'duckling' };
+    } catch (error) {
+      console.log('[temporal] ⚠️ Duckling failed, falling back to Chrono-node');
+      console.log('[temporal] Duckling error:', error.message);
+    }
+  } else {
+    console.log('[temporal] DUCKLING_API_URL not configured, using Chrono-node');
+  }
+
+  // Fallback to Chrono-node
+  const entities = await parseTemporalEntities(text, refTime);
+  console.log('[temporal] ✅ Chrono-node parse successful');
+  return { entities, method: 'chrono' };
 }
 /**
  * Semantic Matching dynamique - créé un nouvel index pour chaque user
@@ -226,16 +349,21 @@ Deno.serve(async (req)=>{
     // Get current date for temporal parsing (in France timezone)
     const nowUTC = new Date();
     const now = toFranceTime(nowUTC);
-    // Parse temporal expressions with Chrono-node (using France time)
-    const temporalEntities = await parseTemporalEntities(message_text, now);
+    // Parse temporal expressions with smart fallback (Duckling → Chrono-node)
+    const parseResult = await parseTemporalWithFallback(message_text, now);
+    const temporalEntities = parseResult.entities;
+    const parsingMethod = parseResult.method;
+
     const enrichedMessage = enrichMessageWithTemporal(message_text, temporalEntities);
     if (enrichedMessage !== message_text) {
       console.log('[ai-auto-reply] Message enriched with temporal parsing:', enrichedMessage);
+      console.log('[ai-auto-reply] Parsing method used:', parsingMethod);
       // Log enrichissement temporel
-      await logAIEvent(supabase, user_id, conversation_id, 'temporal_enriched', 'Expressions temporelles détectées et converties', {
+      await logAIEvent(supabase, user_id, conversation_id, 'temporal_enriched', `Expressions temporelles détectées et converties (${parsingMethod})`, {
         original_message: message_text,
         enriched_message: enrichedMessage,
         entities_count: temporalEntities.length,
+        parsing_method: parsingMethod,
         entities: temporalEntities.map((e)=>({
             text: e.body,
             dim: e.dim,
@@ -578,11 +706,19 @@ Service : ${todayAppointment.service}
 
 TON RÔLE :
 - Faire patienter le client avec des messages COURTS et friendly
-- Détection automatique quand il dit qu'il est arrivé ("je suis là", "suis arrivé", "devant", etc.)
 - NE PAS recollect des infos
 - NE PAS créer de nouveau RDV
 - NE PAS poser de questions sur durée/extras/heure
 - NE PAS donner les codes d'accès (ils seront envoyés automatiquement quand tu seras prête)
+
+DÉTECTION D'ARRIVÉE (CRITIQUE) :
+Tu dois ANALYSER le CONTEXTE de chaque message pour déterminer si le client indique qu'il est arrivé.
+- Détecte TOUTES les formulations indiquant une arrivée (directe ou indirecte)
+- Exemples directs : "je suis là", "je suis la", "suis arrivé", "arrivée", "devant", "en bas"
+- Exemples indirects : "je suis devant chez toi", "garé devant", "à la porte", "dehors"
+- Exemples complexes : "ma voiture a un problème mais je suis arrivé", "petit retard mais là maintenant"
+- NE PAS détecter comme arrivée : "j'arrive dans X min", "je pars", "en route", "bientôt là"
+- Si le client indique une arrivée, mets "client_has_arrived": true dans ta réponse JSON
 
 STYLE :
 - TRÈS court (max 5-10 mots par message)
@@ -603,7 +739,15 @@ ${appointmentStatusContext}
 RAPPEL IMPORTANT :
 - Tu NE peux PAS donner les codes d'accès toi-même
 - Les infos d'accès seront envoyées AUTOMATIQUEMENT quand tu seras prête à recevoir
-- Suis les instructions dans "SITUATION ACTUELLE" ci-dessus selon le statut du client`;
+- Suis les instructions dans "SITUATION ACTUELLE" ci-dessus selon le statut du client
+
+FORMAT DE RÉPONSE :
+Tu dois TOUJOURS répondre avec un JSON valide contenant :
+{
+  "message": "ton message au client (string)",
+  "client_has_arrived": true ou false selon l'analyse contextuelle,
+  "confidence": "high" | "medium" | "low"
+}`;
 
     } else {
       // MODE WORKFLOW: No confirmed appointment today - full booking workflow
@@ -656,14 +800,42 @@ COLLECTE (4 infos, 1 question/fois) :
    - Heure actuelle : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
    - MINIMUM 30 MINUTES dans le futur (pas avant ${Math.floor((currentDateTime.hour * 60 + currentDateTime.minute + 30) / 60)}h${String(((currentDateTime.hour * 60 + currentDateTime.minute + 30) % 60)).padStart(2, '0')})
    - Créneaux dispos : ${availableRanges}
-   - Si le créneau contient "(jusqu'à demain matin)", ça veut dire jusqu'à cette heure-là APRÈS MINUIT
-   - Exemple : "21h-2h (jusqu'à demain matin)" = 21h, 22h, 23h, 23h30, minuit, 1h, 1h30 sont TOUS VALIDES
-   - NE JAMAIS proposer l'heure actuelle ou une heure dans moins de 30 minutes
-   - Question: "À quelle heure ?" Si client dit "maintenant" ou < 30min : "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
-   - Si demain: "Désolée, que jour même."
+
+   ⚠️ COLLECTE DE L'HEURE (ÉTAPES OBLIGATOIRES) :
+   ÉTAPE 1 - DEMANDER (NE JAMAIS SAUTER) :
+   - UNIQUEMENT poser la question : "À quelle heure ?"
+   - NE JAMAIS suggérer d'heure spécifique (pas de "16h02", "18h", etc.)
+   - NE PAS dire "je suis dispo à X heure"
+   - ATTENDRE que le client donne SON heure souhaitée
+
+   ÉTAPE 2 - VALIDER LA RÉPONSE DU CLIENT :
+   a) Vérifier si l'heure est dans les créneaux dispos :
+      - Pour créneau "15h33-20h" : 16h, 17h, 18h, 19h sont VALIDES
+      - Pour créneau avec "(jusqu'à demain matin)" comme "21h-2h (jusqu'à demain matin)" :
+        → 21h, 22h, 23h, minuit, 1h, 2h sont TOUS VALIDES (traverse minuit)
+      - Exemple validation : Client dit "18h", créneaux "15h33-20h, 22h-2h"
+        → 18h est entre 15h33 et 20h ? OUI → ✅ VALIDE, accepter
+      - Exemple validation : Client dit "21h", créneaux "15h33-20h, 22h-2h"
+        → 21h est entre 15h33 et 20h ? NON → 21h est entre 22h et 2h ? NON → ❌ INVALIDE
+        → Répondre: "Désolée bébé, je suis dispo ${availableRanges}. Tu peux à quelle heure ?"
+
+   b) Si heure < 30 min dans le futur :
+      → "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+
+   c) Si client dit "maintenant", "tout de suite", "là" :
+      → "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+
+   d) Si client mentionne demain ou jour futur :
+      → "Désolée, que jour même."
 4. CONFIRMATION : Récap court + "Je confirme ?"
 
-WORKFLOW : Valide chaque réponse vs options. Alternatives si besoin. Pas de RDV si info manquante.
+WORKFLOW - ORDRE STRICT (NE JAMAIS SAUTER D'ÉTAPE) :
+Étape 1 → DURÉE : Demander "Quelle durée ?", attendre réponse, valider
+Étape 2 → EXTRAS : Demander "Tu veux l'extra ?", attendre réponse, valider
+Étape 3 → HEURE : Demander "À quelle heure ?" (SANS suggérer), attendre réponse client, PUIS valider selon règles ÉTAPE 2 ci-dessus
+Étape 4 → CONFIRMATION : Récap + "Je confirme ?", attendre réponse
+→ Si info manquante ou invalide : redemander, donner alternatives
+→ Pas de RDV tant que les 4 étapes ne sont pas complétées et validées
 
 JOUR MÊME SEUL : Refuse "demain", "week-end", dates futures. Toute mention de jour futur → "Désolée, que jour même."
 
@@ -748,6 +920,35 @@ CONTEXTE : 20 derniers messages dispo.`;
     if (!hasConfirmedAppointmentToday) {
       openaiRequestBody.tools = [appointmentTool];
       openaiRequestBody.tool_choice = "auto";
+    } else {
+      // WAITING mode: Use JSON structured output for arrival detection
+      openaiRequestBody.response_format = {
+        type: "json_schema",
+        json_schema: {
+          name: "ai_waiting_response",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              message: {
+                type: "string",
+                description: "The message to send to the client"
+              },
+              client_has_arrived: {
+                type: "boolean",
+                description: "Whether the client has indicated they have arrived based on context analysis"
+              },
+              confidence: {
+                type: "string",
+                enum: ["high", "medium", "low"],
+                description: "Confidence level of the arrival detection"
+              }
+            },
+            required: ["message", "client_has_arrived", "confidence"],
+            additionalProperties: false
+          }
+        }
+      };
     }
     // Log requête OpenAI (CRUCIAL)
     const requestTimestamp = Date.now();
@@ -1160,7 +1361,32 @@ Aujourd'hui ${appointmentData.appointment_time}
       }
     }
     // Normal conversational response (no tool call)
-    const aiResponse = messageResponse.content;
+    let aiResponse: string;
+    let clientHasArrived = false;
+    let arrivalConfidence = 'low';
+
+    // If in WAITING mode, parse JSON structured response
+    if (hasConfirmedAppointmentToday) {
+      try {
+        const parsedResponse = JSON.parse(messageResponse.content);
+        aiResponse = parsedResponse.message;
+        clientHasArrived = parsedResponse.client_has_arrived;
+        arrivalConfidence = parsedResponse.confidence;
+
+        console.log('[ai-auto-reply] Parsed JSON response:', {
+          message: aiResponse,
+          client_has_arrived: clientHasArrived,
+          confidence: arrivalConfidence
+        });
+      } catch (parseError) {
+        console.error('[ai-auto-reply] Failed to parse JSON response, using raw content:', parseError);
+        aiResponse = messageResponse.content;
+      }
+    } else {
+      // WORKFLOW mode: plain text response
+      aiResponse = messageResponse.content;
+    }
+
     console.log('[ai-auto-reply] Normal response:', aiResponse);
 
     // SECURITY: Verify conversation before sending response
@@ -1252,61 +1478,46 @@ Aujourd'hui ${appointmentData.appointment_time}
       message_content: aiResponse,
       tokens_used: openaiData.usage
     });
-    // Detect client arrival if there's an appointment today
-    if (todayAppointment && !todayAppointment.client_arrived) {
-      const arrivalKeywords = [
-        'je suis là',
-        'suis là',
-        'je suis arrivé',
-        'arrivé',
-        'devant',
-        'en bas',
-        'dehors',
-        'à la porte',
-        'porte',
-        'je suis arrivée',
-        'arrivée'
-      ];
-      const messageTextLower = message_text.toLowerCase();
-      const arrivalDetected = arrivalKeywords.some((keyword)=>messageTextLower.includes(keyword));
-      if (arrivalDetected) {
-        console.log('[ai-auto-reply] Client arrival detected for appointment:', todayAppointment.id);
-        console.log('[ai-auto-reply] Message that triggered arrival detection:', message_text);
-        console.log('[ai-auto-reply] Keywords matched:', arrivalKeywords.filter((kw)=>messageTextLower.includes(kw)));
+    // Detect client arrival if there's an appointment today (using AI context analysis)
+    if (todayAppointment && !todayAppointment.client_arrived && clientHasArrived) {
+      console.log('[ai-auto-reply] Client arrival detected by AI context analysis');
+      console.log('[ai-auto-reply] Appointment ID:', todayAppointment.id);
+      console.log('[ai-auto-reply] Message that triggered arrival detection:', message_text);
+      console.log('[ai-auto-reply] AI confidence level:', arrivalConfidence);
 
-        // Update appointment to mark client as arrived - using supabase with SERVICE_ROLE_KEY to bypass RLS
-        const { data: updateData, error: updateError } = await supabase.from('appointments').update({
-          client_arrived: true,
-          client_arrival_detected_at: new Date().toISOString()
-        }).eq('id', todayAppointment.id).select();
+      // Update appointment to mark client as arrived - using supabase with SERVICE_ROLE_KEY to bypass RLS
+      const { data: updateData, error: updateError } = await supabase.from('appointments').update({
+        client_arrived: true,
+        client_arrival_detected_at: new Date().toISOString()
+      }).eq('id', todayAppointment.id).select();
 
-        if (updateError) {
-          console.error('[ai-auto-reply] Failed to update client arrival status:', updateError);
-          console.error('[ai-auto-reply] Update error details:', JSON.stringify(updateError, null, 2));
-        } else {
-          console.log('[ai-auto-reply] Successfully updated client_arrived to true');
-          console.log('[ai-auto-reply] Updated appointment data:', updateData);
-          // Log client arrival detection
-          await logAIEvent(supabase, user_id, conversation_id, 'client_arrival_detected', 'Arrivée du client détectée automatiquement', {
-            appointment_id: todayAppointment.id,
-            appointment_time: todayAppointment.start_time,
-            message_trigger: message_text,
-            keywords_matched: arrivalKeywords.filter((kw)=>messageTextLower.includes(kw))
+      if (updateError) {
+        console.error('[ai-auto-reply] Failed to update client arrival status:', updateError);
+        console.error('[ai-auto-reply] Update error details:', JSON.stringify(updateError, null, 2));
+      } else {
+        console.log('[ai-auto-reply] Successfully updated client_arrived to true');
+        console.log('[ai-auto-reply] Updated appointment data:', updateData);
+        // Log client arrival detection
+        await logAIEvent(supabase, user_id, conversation_id, 'client_arrival_detected', 'Arrivée du client détectée automatiquement par analyse contextuelle IA', {
+          appointment_id: todayAppointment.id,
+          appointment_time: todayAppointment.start_time,
+          message_trigger: message_text,
+          detection_method: 'ai_context_analysis',
+          confidence: arrivalConfidence
+        });
+
+        // Send notification to provider about client arrival
+        console.log('[ai-auto-reply] Sending notification to provider for client arrival');
+        try {
+          await supabase.functions.invoke('send-provider-notification', {
+            body: {
+              appointment_id: todayAppointment.id,
+              notification_type: 'client_arrived'
+            }
           });
-
-          // Send notification to provider about client arrival
-          console.log('[ai-auto-reply] Sending notification to provider for client arrival');
-          try {
-            await supabase.functions.invoke('send-provider-notification', {
-              body: {
-                appointment_id: todayAppointment.id,
-                notification_type: 'client_arrived'
-              }
-            });
-          } catch (notifError) {
-            // Don't fail the flow if notification fails
-            console.error('[ai-auto-reply] Failed to send client arrival notification:', notifError);
-          }
+        } catch (notifError) {
+          // Don't fail the flow if notification fails
+          console.error('[ai-auto-reply] Failed to send client arrival notification:', notifError);
         }
       }
     }
