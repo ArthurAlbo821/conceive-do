@@ -1,0 +1,417 @@
+---
+# CodeRabbit Configuration for Conceive-Do Full Codebase Analysis
+# Analysis focus: Security, Critical Bugs, Performance
+# Special attention: Edge Functions, Webhooks, Authentication, Sensitive Data, AI Auto-Reply
+
+language: "fr"  # French language for review comments
+
+reviews:
+  # Enable comprehensive analysis for all file types
+  profile: "balanced"
+
+  # Request changes for critical issues
+  request_changes_workflow: true
+
+  # High-level summary for each category
+  high_level_summary: true
+  high_level_summary_placeholder: "## 📊 Analyse CodeRabbit - Conceive-Do\n\nAnalyse complète de 14k lignes avant déploiement Vercel.\nFocus: Sécurité | Bugs Critiques | Performance"
+
+  # Organize reviews by category
+  auto_review:
+    enabled: true
+    auto_incremental_review: false  # Full review, not incremental
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT REVIEW"
+
+    # Structured analysis by domain
+    labels:
+      - "coderabbit-security"      # Security issues
+      - "coderabbit-bugs"          # Critical bugs
+      - "coderabbit-performance"   # Performance concerns
+      - "coderabbit-edge-functions" # Edge functions specific
+      - "coderabbit-webhooks"      # Webhook handling
+      - "coderabbit-auth"          # Authentication/authorization
+      - "coderabbit-sensitive-data" # Data privacy/security
+      - "coderabbit-ai"            # AI auto-reply concerns
+
+    # Tool configurations for deep analysis
+    tools:
+      shellcheck:
+        enabled: false
+
+      ruff:
+        enabled: false
+
+      markdownlint:
+        enabled: false
+
+      github-checks:
+        enabled: true
+        timeout_ms: 90000  # 90 seconds for large codebase
+
+      languagetool:
+        enabled: false
+
+      biome:
+        enabled: false
+
+      hadolint:
+        enabled: false
+
+      swiftlint:
+        enabled: false
+
+      phpstan:
+        enabled: false
+
+      golangci-lint:
+        enabled: false
+
+      yamllint:
+        enabled: true
+
+      eslint:
+        enabled: true  # Use project's ESLint config
+
+      gitleaks:
+        enabled: true  # Scan for secrets and sensitive data
+
+      semgrep:
+        enabled: true  # Security pattern matching
+
+  # Path-based instructions for focused analysis
+  path_instructions:
+    # Edge Functions - Critical Security Focus
+    - path: "supabase/functions/**/*.ts"
+      instructions: |
+        🔴 PRIORITÉ MAXIMALE - Edge Functions Supabase
+
+        Analyser STRICTEMENT:
+        1. **Sécurité**:
+           - Validation des inputs (injection SQL, XSS, SSRF)
+           - Gestion des secrets et variables d'environnement
+           - Rate limiting et protection DoS
+           - CORS et headers de sécurité
+           - Authentification JWT (vérifier config.toml)
+
+        2. **Gestion d'erreurs**:
+           - Try-catch appropriés
+           - Pas de leak d'informations sensibles dans les erreurs
+           - Logging sécurisé
+
+        3. **Performance**:
+           - Timeouts configurés
+           - Gestion mémoire pour gros payloads
+           - Optimisation des requêtes DB
+
+        4. **Code Quality**:
+           - Type safety TypeScript
+           - Gestion des promises et async/await
+           - Pas de code mort ou debug statements
+
+    # Webhook Handlers - Special Attention
+    - path: "supabase/functions/evolution-webhook-handler/**"
+      instructions: |
+        🔴 CRITIQUE - Webhook Handler Principal
+
+        Vérifier:
+        1. Validation HMAC/signature webhook
+        2. Idempotence (replay attacks)
+        3. Rate limiting strict
+        4. Timeout handling
+        5. Payload size limits
+        6. Error handling sans révéler l'architecture
+        7. Logging approprié (pas de données sensibles)
+
+    - path: "supabase/functions/diagnose-webhook/**"
+      instructions: |
+        ⚠️ Webhook Diagnostics - Sécurité
+
+        S'assurer:
+        1. Pas d'exposition de credentials
+        2. Limitation d'accès appropriée
+        3. Pas de verbose logging en production
+
+    - path: "supabase/functions/set-webhook/**"
+      instructions: |
+        🔴 CRITIQUE - Configuration Webhook
+
+        Vérifier:
+        1. Validation URL webhook (SSRF prevention)
+        2. HTTPS obligatoire
+        3. Auth token sécurisé
+        4. Pas de webhook vers localhost/internal IPs
+
+    # AI Auto-Reply - Critical Analysis
+    - path: "supabase/functions/ai-auto-reply/**"
+      instructions: |
+        🔴 PRIORITÉ MAXIMALE - AI Auto-Reply
+
+        Analyser en détail:
+        1. **Injection Prompts**:
+           - Sanitization des inputs utilisateur
+           - Protection contre prompt injection
+           - Limitation de tokens/longueur
+
+        2. **Données Sensibles**:
+           - Pas de PII dans les prompts
+           - Masquage des données confidentielles
+           - Conformité RGPD
+
+        3. **Rate Limiting**:
+           - Protection contre abus API IA
+           - Gestion des coûts
+           - Quotas par utilisateur
+
+        4. **Error Handling**:
+           - Fallback si API IA indisponible
+           - Pas de leak de la logique IA
+
+        5. **Performance**:
+           - Timeouts appropriés
+           - Streaming vs batch
+           - Caching si pertinent
+
+    # Authentication Functions
+    - path: "supabase/functions/delete-account/**"
+      instructions: |
+        🔴 CRITIQUE - Suppression Compte
+
+        Vérifier:
+        1. Auth JWT obligatoire
+        2. Confirmation utilisateur
+        3. Soft delete vs hard delete
+        4. Cascade deletion des données
+        5. Audit log
+        6. RGPD compliance (droit à l'oubli)
+
+    - path: "supabase/functions/send-access-info/**"
+      instructions: |
+        🔴 Envoi Informations Accès
+
+        S'assurer:
+        1. Pas de credentials en clair
+        2. Expiration des tokens
+        3. Canal de communication sécurisé
+        4. Rate limiting (prévention brute force)
+
+    # Shared Utilities - Security Foundation
+    - path: "supabase/functions/_shared/**"
+      instructions: |
+        🔴 Modules Partagés - Foundation Sécurité
+
+        Analyser:
+        1. **webhook-security.ts**:
+           - Implémentation HMAC correcte
+           - Timing attack prevention
+           - Rate limiting robuste
+
+        2. **normalize-phone.ts**:
+           - Validation format international
+           - Prevention injection
+
+        3. **timezone-helpers.ts**:
+           - Gestion correcte DST et edge cases
+           - Pas de timezone confusion bugs
+
+    # Frontend Authentication & Sensitive Data
+    - path: "src/pages/Auth.tsx"
+      instructions: |
+        🔴 Page Authentification
+
+        Vérifier:
+        1. Pas de credentials stockés en clair
+        2. HTTPS only
+        3. Protection CSRF
+        4. Input validation (email, password)
+        5. Rate limiting côté client
+        6. Gestion sécurisée des tokens
+
+    - path: "src/pages/ForgotPassword.tsx"
+      instructions: |
+        ⚠️ Reset Password Flow
+
+        S'assurer:
+        1. Email validation
+        2. Rate limiting
+        3. Pas d'énumération utilisateurs
+        4. Token expiration
+
+    - path: "src/pages/ResetPassword.tsx"
+      instructions: |
+        ⚠️ Reset Password Execution
+
+        Vérifier:
+        1. Token validation côté serveur
+        2. Password strength enforcement
+        3. Token usage unique
+        4. Expiration handling
+
+    # Supabase Client Configuration
+    - path: "src/integrations/supabase/client.ts"
+      instructions: |
+        🔴 CRITIQUE - Supabase Client Config
+
+        Analyser:
+        1. Pas de anon key exposée si non nécessaire
+        2. RLS (Row Level Security) enforcement
+        3. Pas de service_role key côté client
+        4. Proper auth persistence
+        5. Error handling
+
+    - path: "src/integrations/supabase/types.ts"
+      instructions: |
+        Type Safety - Supabase Types
+
+        Vérifier:
+        1. Types à jour avec le schéma DB
+        2. Pas de 'any' non justifiés
+        3. Null safety
+
+    # Custom Hooks - Data Handling
+    - path: "src/hooks/**"
+      instructions: |
+        ⚠️ Custom Hooks - Data Flow
+
+        Analyser:
+        1. Gestion erreurs appropriée
+        2. Loading states
+        3. Memory leaks (useEffect cleanup)
+        4. Stale data handling
+        5. Optimistic updates sécurisés
+
+    # Message Handling - Privacy
+    - path: "src/pages/Messages.tsx"
+      instructions: |
+        🔴 Messages - Confidentialité
+
+        Vérifier:
+        1. Chiffrement end-to-end si applicable
+        2. Pas de log des messages
+        3. XSS prevention dans le rendu
+        4. Rate limiting
+        5. Validation des pièces jointes
+
+    - path: "src/components/messages/**"
+      instructions: |
+        ⚠️ Composants Messages
+
+        S'assurer:
+        1. Sanitization du contenu
+        2. Pas de render de HTML non sécurisé
+        3. Protection contre injection
+
+    # Appointments - Business Logic
+    - path: "src/pages/Appointments.tsx"
+      instructions: |
+        ⚠️ Rendez-vous - Logic Métier
+
+        Analyser:
+        1. Validation timezone
+        2. Double booking prevention
+        3. Date validation (past dates, etc.)
+        4. Concurrency handling
+
+    - path: "src/components/availability/**"
+      instructions: |
+        Disponibilités - Edge Cases
+
+        Vérifier:
+        1. Midnight-crossing ranges (déjà fixé?)
+        2. DST handling
+        3. Overlap detection
+
+    # Components UI - XSS & Accessibility
+    - path: "src/components/ui/**"
+      instructions: |
+        UI Components - shadcn/ui
+
+        Vérifier basique:
+        1. Props validation
+        2. XSS dans les props dynamiques
+        3. Accessibility (a11y)
+
+    # Environment & Config
+    - path: ".env*"
+      instructions: |
+        🔴 CRITIQUE - Variables d'environnement
+
+        S'assurer:
+        1. Pas de secrets committés
+        2. .env dans .gitignore
+        3. Documentation des vars requises
+
+    - path: "vite.config.ts"
+      instructions: |
+        Build Configuration
+
+        Vérifier:
+        1. Source maps désactivées en prod
+        2. Minification activée
+        3. Pas de dev tools en prod
+
+  # Review settings
+  review_status: true
+  poem: false  # No poem, just facts
+  collapse_walkthrough: false  # Show full walkthrough
+
+  # Early access features
+  early_access: true
+
+  # Tone for French comments
+  tone_instructions: |
+    Utiliser un ton professionnel et direct en français.
+    - Être précis et factuel
+    - Citer le code concerné
+    - Proposer des solutions concrètes
+    - Classer par priorité: 🔴 Critique | ⚠️ Important | 💡 Suggestion
+
+# Chat settings
+chat:
+  auto_reply: true
+
+# Knowledge base (optional)
+knowledge_base:
+  enabled: true
+
+  learnings:
+    scope: "global"  # Learn from this review for future
+
+  # Opt-in to learn from this codebase
+  opt_out: false
+
+# Exclude paths not relevant for review
+exclude_patterns:
+  - "node_modules/**"
+  - "dist/**"
+  - "build/**"
+  - ".lovable/**"
+  - "*.lock"
+  - "*.log"
+  - "package-lock.json"
+  - "bun.lockb"
+  - ".git/**"
+  - "*.md"  # Documentation (except security-related)
+  - "*.svg"
+  - "*.png"
+  - "*.jpg"
+  - "*.jpeg"
+  - "*.gif"
+  - "*.ico"
+  - "public/**"  # Static assets
+  - "*.test.ts"
+  - "*.test.tsx"
+  - "*.spec.ts"
+  - "*.spec.tsx"
+
+# Include important config files
+include_patterns:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+  - "supabase/config.toml"
+  - "vite.config.ts"
+  - "tsconfig*.json"
+  - ".env.example"
