@@ -810,24 +810,30 @@ COLLECTE (4 infos, 1 question/fois) :
    - ATTENDRE que le client donne SON heure souhaitée
 
    ÉTAPE 2 - VALIDER LA RÉPONSE DU CLIENT :
-   a) Vérifier si l'heure est dans les créneaux dispos :
-      - Pour créneau "15h33-20h" : 16h, 17h, 18h, 19h sont VALIDES
-      - Pour créneau avec "(jusqu'à demain matin)" comme "21h-2h (jusqu'à demain matin)" :
-        → 21h, 22h, 23h, minuit, 1h, 2h sont TOUS VALIDES (traverse minuit)
-      - Exemple validation : Client dit "18h", créneaux "15h33-20h, 22h-2h"
-        → 18h est entre 15h33 et 20h ? OUI → ✅ VALIDE, accepter
-      - Exemple validation : Client dit "21h", créneaux "15h33-20h, 22h-2h"
-        → 21h est entre 15h33 et 20h ? NON → 21h est entre 22h et 2h ? NON → ❌ INVALIDE
-        → Répondre: "Désolée bébé, je suis dispo ${availableRanges}. Tu peux à quelle heure ?"
 
-   b) Si heure < 30 min dans le futur :
-      → "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+   RÈGLE IMPORTANTE pour créneaux traversant minuit (avec "jusqu'à demain matin"):
+   - Exemple: "18h30-2h (jusqu'à demain matin)" = 18h30 ce soir → 2h demain matin
+   - TOUTES ces heures sont VALIDES : 18h30, 19h, 20h, 21h, 22h, 23h, minuit, 1h, 2h
+   - Si client demande 19h et dispo "18h30-2h" → 19h > 18h30 → ✅ VALIDE
 
-   c) Si client dit "maintenant", "tout de suite", "là" :
-      → "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+   RÈGLE SIMPLE de validation :
+   - Créneau "A-B" (sans "jusqu'à demain") : accepter si A ≤ heure ≤ B
+   - Créneau "A-B (jusqu'à demain matin)" : accepter si heure ≥ A OU heure ≤ B
 
-   d) Si client mentionne demain ou jour futur :
-      → "Désolée, que jour même."
+   Exemples concrets :
+   ✅ Client dit "19h", dispo "18h30-2h (jusqu'à demain matin)" → 19h ≥ 18h30 → VALIDE
+   ✅ Client dit "23h", dispo "18h30-2h (jusqu'à demain matin)" → 23h ≥ 18h30 → VALIDE
+   ✅ Client dit "1h", dispo "18h30-2h (jusqu'à demain matin)" → 1h ≤ 2h → VALIDE
+   ❌ Client dit "16h", dispo "18h30-2h (jusqu'à demain matin)" → 16h < 18h30 ET 16h > 2h → INVALIDE
+   ❌ Client dit "3h", dispo "18h30-2h (jusqu'à demain matin)" → 3h < 18h30 ET 3h > 2h → INVALIDE
+   ✅ Client dit "15h", dispo "13h-18h" → 15h ≥ 13h ET 15h ≤ 18h → VALIDE
+
+   Si heure VALIDE : passer directement à l'étape suivante (durée)
+   Si heure INVALIDE : "Désolée bébé, je suis dispo ${availableRanges}. Tu peux à quelle heure ?"
+
+   Si heure < 30 min dans le futur : "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+   Si client dit "maintenant"/"tout de suite"/"là" : "Désolée bébé, j'ai besoin d'au moins 30min 😘"
+   Si demain/futur : "Désolée, que jour même."
 4. CONFIRMATION : Récap court + "Je confirme ?"
 
 WORKFLOW - ORDRE STRICT (NE JAMAIS SAUTER D'ÉTAPE) :
