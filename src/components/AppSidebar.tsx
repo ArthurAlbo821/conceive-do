@@ -41,7 +41,7 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
                   <NavLink to="/messages">
-                    <MessageSquare className="h-4 w-4" />
+                    <MessageSquare className="h-4 w-4" /> 
                     <span>Messages</span>
                   </NavLink>
                 </SidebarMenuButton>
