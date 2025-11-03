@@ -10,7 +10,7 @@ Après avoir exécuté les 2 scripts SQL (migration + cron jobs), utilisez ce sc
 
 ### Étape 1 : Ouvrir le SQL Editor
 
-Allez sur : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+Allez sur : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 ### Étape 2 : Copier le Script de Vérification
 

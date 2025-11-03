@@ -13,7 +13,7 @@ D'après l'analyse du code, la fonction `create-evolution-instance` essaie 3 mé
 ### Étape 1 : Récupérer les informations de l'instance
 
 1. Allez sur le **SQL Editor** de Supabase :
-   - https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+   - https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 2. Exécutez cette requête :
 
@@ -42,7 +42,7 @@ WHERE instance_name = 'user_a64ff7e6-5e00-4ff9-9fe6-66ab85386d80';
 
 ```bash
 curl -X POST \
-  https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/diagnose-webhook \
+  https://YOUR_PROJECT_ID.supabase.co/functions/v1/diagnose-webhook \
   -H "Content-Type: application/json" \
   -d '{
     "instanceName": "user_a64ff7e6-5e00-4ff9-9fe6-66ab85386d80",
@@ -131,7 +131,7 @@ Si le diagnostic prend trop de temps, vous pouvez configurer manuellement les we
 2. Sélectionnez l'instance `user_a64ff7e6-5e00-4ff9-9fe6-66ab85386d80`
 3. Dans les paramètres Webhook :
    - **Enabled** : ON (activez le toggle)
-   - **URL** : `https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/evolution-webhook-handler`
+   - **URL** : `https://YOUR_PROJECT_ID.supabase.co/functions/v1/evolution-webhook-handler`
    - **Webhook by Events** : OFF
    - **Webhook Base64** : OFF
    - **Events** : Sélectionnez :
@@ -148,7 +148,7 @@ Utilisez la fonction dédiée qui existe déjà dans votre projet :
 
 ```bash
 curl -X POST \
-  https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/set-webhook \
+  https://YOUR_PROJECT_ID.supabase.co/functions/v1/set-webhook \
   -H "Authorization: Bearer VOTRE_USER_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

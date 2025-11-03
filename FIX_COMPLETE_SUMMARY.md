@@ -150,7 +150,7 @@ fix: Replace broken Duckling API with Chrono-node for temporal parsing
 ## 🔍 Logs à Surveiller
 
 ### Dashboard Supabase
-[https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/functions](https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/functions)
+[https://supabase.com/dashboard/project/YOUR_PROJECT_ID/functions](https://supabase.com/dashboard/project/YOUR_PROJECT_ID/functions)
 
 ### Logs Attendus (SUCCESS)
 

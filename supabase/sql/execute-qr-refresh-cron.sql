@@ -41,7 +41,7 @@ SELECT cron.schedule(
   $$
   SELECT
     net.http_post(
-      url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes',
+      url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes',
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
         'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'  -- ⚠️ REMPLACEZ ICI
@@ -82,7 +82,7 @@ BEGIN
     RAISE NOTICE '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
     RAISE NOTICE '✅ Cron job "refresh-qr-codes" créé avec succès!';
     RAISE NOTICE '   Fréquence: Toutes les 1 minute';
-    RAISE NOTICE '   URL: https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes';
+    RAISE NOTICE '   URL: https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes';
     RAISE NOTICE '';
     RAISE NOTICE '📊 Pour vérifier les exécutions:';
     RAISE NOTICE '   SELECT * FROM cron.job_run_details';
@@ -123,7 +123,7 @@ END $$;
 
 -- Pour tester manuellement l'appel (décommentez et remplacez la clé):
 -- SELECT net.http_post(
---   url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes',
+--   url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes',
 --   headers := jsonb_build_object(
 --     'Content-Type', 'application/json',
 --     'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'

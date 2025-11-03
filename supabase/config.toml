@@ -1,4 +1,8 @@
-project_id = "mxzvvgpqxugirbwtmxys"
+# IMPORTANT: Replace this with your actual Supabase project ID
+# You can find it in your Supabase Dashboard URL:
+# https://supabase.com/dashboard/project/YOUR_PROJECT_ID
+# Or in Settings > General > Reference ID
+project_id = "YOUR_PROJECT_ID"
 
 [functions.create-evolution-instance]
 verify_jwt = true

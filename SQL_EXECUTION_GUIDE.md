@@ -15,7 +15,7 @@ Les Edge Functions suivantes sont déjà déployées sur Supabase :
 
 **Fichier** : `supabase/sql/apply-migration-queue.sql`
 
-1. **Ouvrir le SQL Editor** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+1. **Ouvrir le SQL Editor** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 2. **Copier le contenu du fichier** :
    ```bash
@@ -38,12 +38,12 @@ Les Edge Functions suivantes sont déjà déployées sur Supabase :
 
 **Prérequis** : Récupérer votre Service Role Key
 
-1. **Récupérer la clé** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/settings/api
+1. **Récupérer la clé** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/settings/api
    - Section "Project API keys"
    - Cliquez sur "Reveal" à côté de **service_role**
    - Copiez la longue clé (commence par `eyJ...`)
 
-2. **Ouvrir le SQL Editor** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+2. **Ouvrir le SQL Editor** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 3. **Copier ce SQL** et **REMPLACER** `VOTRE_SERVICE_ROLE_KEY` (2 fois) :
 
@@ -69,7 +69,7 @@ SELECT cron.schedule(
   '*/1 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer VOTRE_SERVICE_ROLE_KEY'
@@ -86,7 +86,7 @@ SELECT cron.schedule(
   '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/process-evolution-queue',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/process-evolution-queue',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer VOTRE_SERVICE_ROLE_KEY'
@@ -201,8 +201,8 @@ WHERE instance_status = 'connecting';
 
 ### Dashboard Supabase
 
-- **Fonctions** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/functions
-- **Logs** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/logs/edge-functions
+- **Fonctions** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/functions
+- **Logs** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/logs/edge-functions
 
 ### Via CLI
 

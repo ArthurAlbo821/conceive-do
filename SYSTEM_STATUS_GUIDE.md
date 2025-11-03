@@ -16,7 +16,7 @@ Pour voir des résultats visuels confirmant que tout fonctionne, exécutez ce sc
 
 **Fichier** : `supabase/sql/verify-with-results.sql`
 
-**Lien SQL Editor** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+**Lien SQL Editor** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 ---
 
@@ -211,11 +211,11 @@ LIMIT 1;
    - Vérifiez Section 7 : `executions_refresh_qr` devrait être > 0
 
 2. La SERVICE_ROLE_KEY est incorrecte
-   - Revérifiez votre clé dans : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/settings/api
+   - Revérifiez votre clé dans : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/settings/api
    - Ré-exécutez le SQL des cron jobs avec la bonne clé
 
 3. L'Edge Function a un problème
-   - Consultez les logs : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/logs/edge-functions
+   - Consultez les logs : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/logs/edge-functions
    - Cherchez des erreurs dans `refresh-qr-codes`
 
 ### Problème : statut_qr = "Aucun QR"

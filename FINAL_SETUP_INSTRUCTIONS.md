@@ -7,7 +7,7 @@
 - ✅ **create-evolution-instance** - Version mise à jour avec support queue
 - ✅ **process-evolution-queue** - Traite la queue de création d'instances
 
-**Dashboard** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/functions
+**Dashboard** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/functions
 
 ---
 
@@ -15,7 +15,7 @@
 
 ### Étape 1 : Appliquer la Migration SQL pour la Queue
 
-Ouvrez le SQL Editor : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+Ouvrez le SQL Editor : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 Copiez et exécutez le contenu du fichier :
 ```bash
@@ -106,13 +106,13 @@ GRANT SELECT ON evolution_instance_creation_queue TO authenticated;
 
 #### A. Récupérer votre Service Role Key
 
-1. Allez sur : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/settings/api
+1. Allez sur : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/settings/api
 2. Dans la section "Project API keys", trouvez la clé **service_role**
 3. Cliquez sur "Reveal" et **copiez la clé** (elle commence par `eyJ...`)
 
 #### B. Créer les Cron Jobs
 
-Ouvrez le SQL Editor : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+Ouvrez le SQL Editor : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 Copiez ce SQL et **REMPLACEZ** `VOTRE_SERVICE_ROLE_KEY` par la clé copiée à l'étape A :
 
@@ -138,7 +138,7 @@ SELECT cron.schedule(
   '*/1 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer VOTRE_SERVICE_ROLE_KEY'
@@ -155,7 +155,7 @@ SELECT cron.schedule(
   '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/process-evolution-queue',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/process-evolution-queue',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer VOTRE_SERVICE_ROLE_KEY'
@@ -243,7 +243,7 @@ LIMIT 5;
 
 ```bash
 curl -X POST \
-  "https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/process-evolution-queue" \
+  "https://YOUR_PROJECT_ID.supabase.co/functions/v1/process-evolution-queue" \
   -H "Authorization: Bearer VOTRE_SERVICE_ROLE_KEY"
 ```
 
@@ -277,7 +277,7 @@ LIMIT 10;
 
 ### Voir les logs des fonctions
 
-Dashboard : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/logs/edge-functions
+Dashboard : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/logs/edge-functions
 
 Ou via CLI :
 ```bash

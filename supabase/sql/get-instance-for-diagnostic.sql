@@ -22,11 +22,11 @@ LIMIT 1;
 --
 -- Exemple de commande curl :
 -- curl -X POST \
---   https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/diagnose-webhook \
---   -H "Authorization: Bearer VOTRE_ANON_KEY" \
+--   https://YOUR_PROJECT_ID.supabase.co/functions/v1/diagnose-webhook \
+--   -H "Authorization: Bearer YOUR_SUPABASE_ANON_KEY" \
 --   -H "Content-Type: application/json" \
 --   -d '{
 --     "instanceName": "COPIER_ICI",
 --     "instanceToken": "COPIER_ICI",
---     "userId": "a64ff7e6-5e00-4ff9-9fe6-66ab85386d80"
+--     "userId": "YOUR_USER_ID"
 --   }'

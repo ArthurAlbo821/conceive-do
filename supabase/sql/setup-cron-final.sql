@@ -27,7 +27,7 @@ END $$;
 -- Ce job appelle directement la fonction refresh-qr-codes
 DO $$
 DECLARE
-  v_project_url text := 'https://mxzvvgpqxugirbwtmxys.supabase.co';
+  v_project_url text := 'https://YOUR_PROJECT_ID.supabase.co';
   v_service_key text;
 BEGIN
   -- Récupérer la service role key depuis les secrets
@@ -57,7 +57,7 @@ END $$;
 -- Étape 4: Créer le cron job pour traiter la queue d'instances toutes les 5 minutes
 DO $$
 DECLARE
-  v_project_url text := 'https://mxzvvgpqxugirbwtmxys.supabase.co';
+  v_project_url text := 'https://YOUR_PROJECT_ID.supabase.co';
 BEGIN
   PERFORM cron.schedule(
     'process-evolution-queue',
@@ -148,7 +148,7 @@ SELECT cron.schedule(
   '*/1 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'
@@ -163,7 +163,7 @@ SELECT cron.schedule(
   '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/process-evolution-queue',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/process-evolution-queue',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer YOUR_SERVICE_ROLE_KEY'

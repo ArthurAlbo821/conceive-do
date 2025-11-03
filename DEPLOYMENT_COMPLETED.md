@@ -8,7 +8,7 @@ Les Edge Functions suivantes ont été déployées sur Supabase :
 - ✅ **create-evolution-instance** - Créer des instances (version mise à jour)
 - ✅ **process-evolution-queue** - Traite la queue de création d'instances
 
-Dashboard: https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/functions
+Dashboard: https://supabase.com/dashboard/project/YOUR_PROJECT_ID/functions
 
 ## 🔧 Configuration Restante
 
@@ -19,11 +19,11 @@ Le cron job n'a pas encore été configuré car il nécessite votre **Service Ro
 #### Option A : Via SQL Editor (Recommandé)
 
 1. **Récupérer votre Service Role Key** :
-   - Allez sur: https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/settings/api
+   - Allez sur: https://supabase.com/dashboard/project/YOUR_PROJECT_ID/settings/api
    - Copiez la clé **service_role** (la longue clé secrète, PAS l'anon key)
 
 2. **Ouvrir le SQL Editor** :
-   - https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/sql/new
+   - https://supabase.com/dashboard/project/YOUR_PROJECT_ID/sql/new
 
 3. **Copier le script SQL** :
    ```bash
@@ -58,7 +58,7 @@ SELECT cron.schedule(
   '*/1 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer VOTRE_SERVICE_ROLE_KEY_ICI'
@@ -74,7 +74,7 @@ SELECT cron.schedule(
   '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url := 'https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/process-evolution-queue',
+    url := 'https://YOUR_PROJECT_ID.supabase.co/functions/v1/process-evolution-queue',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer VOTRE_SERVICE_ROLE_KEY_ICI'
@@ -132,13 +132,13 @@ Cela va créer :
 ```bash
 # Tester refresh-qr-codes (nécessite SERVICE_ROLE_KEY)
 curl -X POST \
-  "https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/refresh-qr-codes" \
+  "https://YOUR_PROJECT_ID.supabase.co/functions/v1/refresh-qr-codes" \
   -H "Authorization: Bearer VOTRE_SERVICE_ROLE_KEY" \
   -H "Content-Type: application/json"
 
 # Tester process-evolution-queue
 curl -X POST \
-  "https://mxzvvgpqxugirbwtmxys.supabase.co/functions/v1/process-evolution-queue" \
+  "https://YOUR_PROJECT_ID.supabase.co/functions/v1/process-evolution-queue" \
   -H "Authorization: Bearer VOTRE_SERVICE_ROLE_KEY" \
   -H "Content-Type: application/json"
 ```
@@ -167,8 +167,8 @@ npx supabase functions logs process-evolution-queue --tail
 
 ### Dashboard Supabase
 
-- **Fonctions** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/functions
-- **Logs** : https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/logs/edge-functions
+- **Fonctions** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/functions
+- **Logs** : https://supabase.com/dashboard/project/YOUR_PROJECT_ID/logs/edge-functions
 
 ### Vérifier les QR Codes
 
