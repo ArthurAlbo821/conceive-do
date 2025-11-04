@@ -279,6 +279,36 @@ const Appointments = () => {
           {appointment.service && (
             <div className="text-muted-foreground">Service: {appointment.service}</div>
           )}
+
+          {/* Display extras with individual prices */}
+          {appointment.selected_extras && appointment.selected_extras.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <div className="text-sm font-medium text-muted-foreground">Extras:</div>
+              {appointment.selected_extras.map((extra, index) => (
+                <div key={index} className="text-sm text-muted-foreground ml-2">
+                  • {extra.name} <span className="font-medium">(CHF {extra.price})</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Display total price */}
+          {appointment.total_price !== null && appointment.total_price !== undefined && (
+            <div className="mt-3 pt-3 border-t">
+              <div className="text-sm font-semibold">
+                Prix total: <span className="text-primary">CHF {appointment.total_price}</span>
+              </div>
+              {appointment.base_price !== null && appointment.base_price !== undefined && (
+                <div className="text-xs text-muted-foreground mt-1">
+                  (Base: CHF {appointment.base_price}
+                  {appointment.extras_total !== null && appointment.extras_total !== undefined && appointment.extras_total > 0 &&
+                    ` + Extras: CHF ${appointment.extras_total}`
+                  })
+                </div>
+              )}
+            </div>
+          )}
+
           {appointment.notes && (
             <div className="text-muted-foreground italic text-xs mt-2">{appointment.notes}</div>
           )}

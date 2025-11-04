@@ -102,6 +102,7 @@ export type Database = {
       appointments: {
         Row: {
           appointment_date: string
+          base_price: number | null
           client_arrival_detected_at: string | null
           client_arrived: boolean | null
           contact_name: string
@@ -110,17 +111,21 @@ export type Database = {
           created_at: string
           duration_minutes: number
           end_time: string
+          extras_total: number | null
           id: string
           notes: string | null
           provider_ready_to_receive: boolean | null
+          selected_extras: Json | null
           service: string | null
           start_time: string
           status: string
+          total_price: number | null
           updated_at: string
           user_id: string
         }
         Insert: {
           appointment_date: string
+          base_price?: number | null
           client_arrival_detected_at?: string | null
           client_arrived?: boolean | null
           contact_name: string
@@ -129,17 +134,21 @@ export type Database = {
           created_at?: string
           duration_minutes: number
           end_time: string
+          extras_total?: number | null
           id?: string
           notes?: string | null
           provider_ready_to_receive?: boolean | null
+          selected_extras?: Json | null
           service?: string | null
           start_time: string
           status?: string
+          total_price?: number | null
           updated_at?: string
           user_id: string
         }
         Update: {
           appointment_date?: string
+          base_price?: number | null
           client_arrival_detected_at?: string | null
           client_arrived?: boolean | null
           contact_name?: string
@@ -148,12 +157,15 @@ export type Database = {
           created_at?: string
           duration_minutes?: number
           end_time?: string
+          extras_total?: number | null
           id?: string
           notes?: string | null
           provider_ready_to_receive?: boolean | null
+          selected_extras?: Json | null
           service?: string | null
           start_time?: string
           status?: string
+          total_price?: number | null
           updated_at?: string
           user_id?: string
         }

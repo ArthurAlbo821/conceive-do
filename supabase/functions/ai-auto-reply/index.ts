@@ -450,9 +450,9 @@ Deno.serve(async (req)=>{
     const orderedMessages = messages.reverse();
     // Build context from user informations
     const prestations = Array.isArray(userInfo.prestations) ? userInfo.prestations.map((p)=>p.name || p).join(', ') : 'Non spécifié';
-    const extras = Array.isArray(userInfo.extras) ? userInfo.extras.map((e)=>`${e.name || e} (${e.price || 'prix non spécifié'}€)`).join(', ') : 'Aucun';
+    const extras = Array.isArray(userInfo.extras) ? userInfo.extras.map((e)=>`${e.name || e} (CHF ${e.price || 'prix non spécifié'})`).join(', ') : 'Aucun';
     const taboos = Array.isArray(userInfo.taboos) ? userInfo.taboos.map((t)=>t.name || t).join(', ') : 'Aucun';
-    const tarifs = Array.isArray(userInfo.tarifs) ? userInfo.tarifs.map((t)=>`${t.duration || '?'} - ${t.price || '?'}€`).join(', ') : 'Non spécifié';
+    const tarifs = Array.isArray(userInfo.tarifs) ? userInfo.tarifs.map((t)=>`${t.duration || '?'} - CHF ${t.price || '?'}`).join(', ') : 'Non spécifié';
     const adresse = userInfo.adresse || 'Non spécifiée';
     console.log('[ai-auto-reply] User catalog loaded:', {
       prestations: userInfo.prestations?.length || 0,
@@ -794,8 +794,8 @@ Toutes les prestations sont incluses dans les tarifs de base :). Tu veux venir p
 IMPORTANT : Ne JAMAIS envoyer le message structuré dès le 1er message. TOUJOURS un accueil d'abord.
 
 COLLECTE (4 infos, 1 question/fois) :
-1. DURÉE : ${durationEnum.join('/')} → ${tarifOptions.map((t)=>`${t.duration}=${t.price}€`).join(', ')}. Question: "Quelle durée ?"
-2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map((e)=>`${e}=${extraToPriceMap[e]}€`).join(', ') : 'Aucun'}. Question: "Tu veux l'extra ?" ou "Aucun extra ?"
+1. DURÉE : ${durationEnum.join('/')} → ${tarifOptions.map((t)=>`${t.duration}=CHF ${t.price}`).join(', ')}. Question: "Quelle durée ?"
+2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map((e)=>`${e}=CHF ${extraToPriceMap[e]}`).join(', ') : 'Aucun'}. Question: "Tu veux l'extra ?" ou "Aucun extra ?"
 3. HEURE - RÈGLES STRICTES :
    - Uniquement aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month})
    - Heure actuelle : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
@@ -848,7 +848,7 @@ JOUR MÊME SEUL : Refuse "demain", "week-end", dates futures. Toute mention de j
 
 MATCHING : "30 minutes"="30min", "1h"="1h", extras approximatifs → match proche.
 
-RÉSUMÉ : "Ok ! [Durée] ([prix]€) + [Extras] (+[prix]€) = [Total]€. Aujourd'hui [heure]. Je confirme ?"
+RÉSUMÉ : "Ok ! [Durée] (CHF [prix]) + [Extras] (+CHF [prix]) = CHF [Total]. Aujourd'hui [heure]. Je confirme ?"
 
 TON ULTRA-COURT :
 - Questions : max 8 mots. "Quelle durée ?", "Tu veux l'extra ?"
@@ -1207,6 +1207,12 @@ CONTEXTE : 20 derniers messages dispo.`;
             });
           }
 
+          // Build structured extras array with prices
+          const structuredExtras = appointmentData.selected_extras.map((extraName) => ({
+            name: extraName,
+            price: extraToPriceMap[extraName] || 0
+          }));
+
           // Insert appointment into database
           // NOTE: start_time and end_time are stored as TIME type (no timezone)
           // These times MUST always be interpreted as France timezone (Europe/Paris)
@@ -1221,6 +1227,10 @@ CONTEXTE : 20 derniers messages dispo.`;
             duration_minutes: durationMinutes,
             service: 'Toutes prestations incluses',
             notes: appointmentData.selected_extras.length > 0 ? `Extras: ${appointmentData.selected_extras.join(', ')}` : null,
+            selected_extras: structuredExtras,
+            base_price: basePrice,
+            extras_total: extrasTotal,
+            total_price: totalPrice,
             status: 'confirmed'
           }).select().single();
           if (insertError) {
@@ -1291,9 +1301,9 @@ CONTEXTE : 20 derniers messages dispo.`;
           const isToday = appointmentData.appointment_date === today;
           // Format date naturally: if today, don't show the full date
           const dateFormatted = isToday ? `aujourd'hui` : `${dayName} ${dateObj.getDate()}/${dateObj.getMonth() + 1}`;
-          const extrasText = appointmentData.selected_extras.length > 0 ? ` + ${appointmentData.selected_extras.map((e)=>`${e} (${extraToPriceMap[e]}€)`).join(', ')}` : '';
+          const extrasText = appointmentData.selected_extras.length > 0 ? ` + ${appointmentData.selected_extras.map((e)=>`${e} (CHF ${extraToPriceMap[e]})`).join(', ')}` : '';
           const confirmationMessage = `✅ RDV confirmé !
-${baseDuration} (${basePrice}€)${extrasText} = ${totalPrice}€
+${baseDuration} (CHF ${basePrice})${extrasText} = CHF ${totalPrice}
 Aujourd'hui ${appointmentData.appointment_time}
 
 À toute !`;
