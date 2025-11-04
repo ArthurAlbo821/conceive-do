@@ -65,6 +65,26 @@ Value: mxzvvgpqxugirbwtmxys
 Environments: ✅ Production ✅ Preview ✅ Development
 ```
 
+#### Variable 4 ⚠️ IMPORTANT!
+```
+Name: VITE_SITE_URL
+Value: https://your-app.vercel.app  (remplacez par votre URL Vercel)
+Environments: ✅ Production ✅ Preview ✅ Development
+```
+
+**Pourquoi cette variable est importante** :
+- Utilisée pour les redirections email (confirmation d'inscription, reset password)
+- Assure que les URLs sont toujours correctement formées en production
+- Évite les problèmes avec `window.location.origin`
+
+**Pour trouver votre URL Vercel** :
+1. Dashboard Vercel → Votre projet
+2. Regardez sous le nom du projet : `https://xxx.vercel.app`
+3. Ou cliquez "Visit" et copiez l'URL
+
+**Exemple** :
+Si votre URL Vercel est `https://conceive-do.vercel.app`, utilisez exactement cette valeur.
+
 3. Cliquez **Save**
 
 ### Étape 3: Forcer un Redéploiement SANS Cache

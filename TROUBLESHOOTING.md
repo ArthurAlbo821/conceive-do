@@ -19,7 +19,17 @@ Environment: production
 VITE_SUPABASE_URL: https://mxzvvgpqxugirbwtmxys...
 VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVC...
 ```
-**→ Bon signe !** Les variables sont chargées. Le problème est ailleurs.
+**→ Bon signe !** Les variables sont chargées.
+
+**Mais si vous voyez quand même une erreur 401 lors du signup** :
+```
+POST https://[project].supabase.co/auth/v1/signup
+401 (Unauthorized)
+```
+→ Le problème est la **configuration des URLs autorisées dans Supabase**
+→ Suivez le guide [SUPABASE_AUTH_CONFIG.md](./SUPABASE_AUTH_CONFIG.md)
+
+**Si l'erreur survient APRÈS le signup (au dashboard)** :
 → Passez à la section "Problèmes Supabase Edge Functions"
 
 #### ❌ Cas 2: Vous voyez cette erreur
@@ -200,7 +210,42 @@ supabase functions deploy check-instance-status
 
 ---
 
-### Problème 4: CORS Errors
+### Problème 4: Erreur 401 Unauthorized lors du Signup
+
+**Symptôme**:
+```
+POST https://mxzvvgpqxugirbwtmxys.supabase.co/auth/v1/signup
+401 (Unauthorized)
+```
+
+**ET** dans la console, vous voyez bien :
+```
+🔍 Supabase Client Initialization
+VITE_SUPABASE_URL: https://mxzvvgpqxugirbwtmxys...
+VITE_SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVC...
+```
+
+**Cause**: Les variables d'environnement sont correctes, MAIS Supabase bloque les requêtes provenant de votre domaine Vercel parce qu'il n'est pas dans la liste des URLs autorisées.
+
+**Solution Complète**: Voir [SUPABASE_AUTH_CONFIG.md](./SUPABASE_AUTH_CONFIG.md)
+
+**Solution Rapide**:
+1. Allez sur [Supabase Dashboard](https://supabase.com/dashboard/project/mxzvvgpqxugirbwtmxys/auth/url-configuration)
+2. Dans **Site URL**, mettez votre URL Vercel : `https://your-app.vercel.app`
+3. Dans **Redirect URLs**, ajoutez (une par ligne) :
+   ```
+   https://your-app.vercel.app/dashboard
+   https://your-app.vercel.app/auth
+   https://your-app.vercel.app/
+   https://your-app.vercel.app/**
+   ```
+4. Cliquez **Save**
+5. Attendez 1-2 minutes
+6. Testez à nouveau la création de compte
+
+---
+
+### Problème 5: CORS Errors
 
 **Symptôme**:
 ```
@@ -208,24 +253,10 @@ Access to fetch at 'https://...' from origin 'https://your-app.vercel.app'
 has been blocked by CORS policy
 ```
 
-**Cause**: Supabase ou Evolution API bloque les requêtes depuis votre domaine Vercel.
+**Cause**: Evolution API ou autre service externe bloque les requêtes depuis votre domaine Vercel.
 
 **Solution**:
-
-#### Pour Supabase:
-1. Supabase Dashboard → Authentication → URL Configuration
-2. Ajoutez votre URL Vercel dans "Site URL" :
-   ```
-   https://your-app.vercel.app
-   ```
-3. Ajoutez aussi dans "Redirect URLs" :
-   ```
-   https://your-app.vercel.app/dashboard
-   https://your-app.vercel.app/auth
-   ```
-
-#### Pour Evolution API:
-Configurez l'API pour accepter les requêtes depuis votre domaine Vercel.
+Configurez l'API externe pour accepter les requêtes depuis votre domaine Vercel.
 
 ---
 
@@ -284,7 +315,10 @@ supabase secrets list
 - [ ] Secrets déployés : `supabase secrets list` montre tous les secrets
 - [ ] Edge Functions déployées : `supabase functions list`
 - [ ] Migrations appliquées : `supabase db push`
-- [ ] URLs autorisées dans Auth Configuration
+- [ ] **URLs autorisées dans Auth Configuration** ⚠️ (CRITIQUE!)
+  - [ ] Site URL configurée avec votre domaine Vercel
+  - [ ] Redirect URLs incluent `/dashboard`, `/auth`, `/`, `/**`
+  - [ ] Voir [SUPABASE_AUTH_CONFIG.md](./SUPABASE_AUTH_CONFIG.md) pour détails
 
 ### Tests
 - [ ] Page d'accueil charge correctement
