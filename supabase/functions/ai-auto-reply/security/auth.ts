@@ -42,8 +42,18 @@ export async function validateJWT(
     return { isValid: false, error: 'JWT secret not configured' };
   }
 
-  // Extract token from "Bearer <token>"
-  const token = authHeader.replace('Bearer ', '');
+  // Extract token from "Bearer <token>" with robust validation
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch || !bearerMatch[1]) {
+    console.error('[auth] Invalid Authorization header format');
+    return { isValid: false, error: 'Invalid Authorization header format. Expected: Bearer <token>' };
+  }
+
+  const token = bearerMatch[1].trim();
+  if (!token) {
+    console.error('[auth] Empty token in Authorization header');
+    return { isValid: false, error: 'Empty token in Authorization header' };
+  }
 
   try {
     // Verify JWT signature and expiration
@@ -58,7 +68,8 @@ export async function validateJWT(
       return { isValid: false, error: 'Invalid JWT: missing user_id' };
     }
 
-    console.log('[auth] JWT validated for user:', user_id);
+    console.log('[auth] JWT validated successfully');
+    return { isValid: true, user_id };
     return { isValid: true, user_id };
 
   } catch (error) {
@@ -97,11 +108,17 @@ export async function extractUserId(
  * Creates an authentication error response
  * 
  * @param error - Error message
+ * @param corsHeaders - Optional CORS headers to include
  * @returns Response with 401 status
  */
-export function authErrorResponse(error: string): Response {
+export function authErrorResponse(error: string, corsHeaders?: Record<string, string>): Response {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(corsHeaders || {})
+  };
+  
   return new Response(
     JSON.stringify({ error }),
-    { status: 401, headers: { 'Content-Type': 'application/json' } }
+    { status: 401, headers }
   );
 }

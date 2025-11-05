@@ -90,7 +90,7 @@ FORMAT DE RÉPONSE :
 Tu dois TOUJOURS répondre avec un JSON valide contenant :
 {
   "message": "ton message au client (string)",
-  "client_has_arrived": true ou false selon l'analyse contextuelle,
-  "confidence": "high" | "medium" | "low"
+  "client_has_arrived": boolean (true si le client indique qu'il est arrivé, false sinon),
+  "confidence": string (soit "high", soit "medium", soit "low")
 }`;
 }

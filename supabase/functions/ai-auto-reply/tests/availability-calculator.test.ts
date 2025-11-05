@@ -37,7 +37,7 @@ function createAppointment(
 ): Appointment {
   const [hours, minutes] = startTime.split(':').map(Number);
   const endMinutes = hours * 60 + minutes + durationMinutes;
-  const endHours = Math.floor(endMinutes / 60);
+  const endHours = Math.floor(endMinutes / 60) % 24;
   const endMins = endMinutes % 60;
   const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`;
 
@@ -116,7 +116,7 @@ Deno.test('computeAvailableRanges - respect lead time (30 minutes)', () => {
   // Should start at 14:50 (14:20 + 30min lead time), not 14:00
   // Result should not include times before 14:50
   assertEquals(result.includes('14h-'), false);
-  assertEquals(result.includes('15h'), true || result.includes('14h5'), true);
+  assertEquals(true, result.includes('15h') || result.includes('14h5'));
 });
 
 Deno.test('computeAvailableRanges - multiple availability windows', () => {
@@ -127,7 +127,7 @@ Deno.test('computeAvailableRanges - multiple availability windows', () => {
   ];
   const result = computeAvailableRanges(availabilities, [], currentDate);
   // Should show both windows
-  assertEquals(result.includes('10h'), true || result.includes('10h3'), true); // After lead time
+  assertEquals(result.includes('10h') || result.includes('10h3'), true); // After lead time
   assertEquals(result.includes('14h'), true);
 });
 

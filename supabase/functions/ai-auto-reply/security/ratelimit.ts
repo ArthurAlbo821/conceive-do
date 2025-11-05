@@ -38,21 +38,16 @@ export async function checkRateLimit(
   error?: string;
 }> {
   try {
-    // Calculate time window (current minute)
+    // Calculate sliding window cutoff (true sliding window, not clock-aligned)
     const now = new Date();
-    const windowStart = new Date(now);
-    windowStart.setSeconds(0, 0); // Start of current minute
+    const cutoff = new Date(now.getTime() - RATE_LIMIT_CONFIG.WINDOW_MINUTES * 60000);
 
-    const windowEnd = new Date(windowStart);
-    windowEnd.setMinutes(windowEnd.getMinutes() + RATE_LIMIT_CONFIG.WINDOW_MINUTES);
-
-    // Count requests in current window
+    // Count requests in sliding window (from cutoff to now)
     const { data, error, count } = await supabase
       .from('ai_rate_limits')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .gte('created_at', windowStart.toISOString())
-      .lt('created_at', windowEnd.toISOString());
+      .gte('created_at', cutoff.toISOString());
 
     if (error) {
       console.error('[ratelimit] Error querying rate limits:', error);
@@ -65,11 +60,14 @@ export async function checkRateLimit(
     // Check if limit exceeded
     if (requestCount >= RATE_LIMIT_CONFIG.MAX_REQUESTS) {
       console.warn(`[ratelimit] ⚠️ Rate limit exceeded for user ${userId}: ${requestCount}/${RATE_LIMIT_CONFIG.MAX_REQUESTS}`);
+      // For sliding window, estimate reset time (when oldest request will fall out of window)
+      const estimatedResetTime = new Date(now.getTime() + RATE_LIMIT_CONFIG.WINDOW_MINUTES * 60000);
+      const waitSeconds = Math.ceil(RATE_LIMIT_CONFIG.WINDOW_MINUTES * 60);
       return {
         isAllowed: false,
         requestCount,
-        resetTime: windowEnd,
-        error: `Rate limit exceeded. Maximum ${RATE_LIMIT_CONFIG.MAX_REQUESTS} requests per ${RATE_LIMIT_CONFIG.WINDOW_MINUTES} minute(s). Try again in ${Math.ceil((windowEnd.getTime() - now.getTime()) / 1000)} seconds.`
+        resetTime: estimatedResetTime,
+        error: `Rate limit exceeded. Maximum ${RATE_LIMIT_CONFIG.MAX_REQUESTS} requests per ${RATE_LIMIT_CONFIG.WINDOW_MINUTES} minute(s). Try again in ${waitSeconds} seconds.`
       };
     }
 
@@ -82,16 +80,35 @@ export async function checkRateLimit(
       });
 
     if (insertError) {
-      console.error('[ratelimit] Error recording request:', insertError);
-      // On error, still allow request (fail open)
+      console.error(
+        `[ratelimit] ⚠️ Error recording request for user ${userId}:`,
+        {
+          error: insertError,
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint,
+          code: insertError.code,
+          actualRequestCount: requestCount
+        }
+      );
+      // On error, still allow request (fail open) but return actual count
+      console.log(`[ratelimit] ✅ Request allowed despite insert failure (${requestCount}/${RATE_LIMIT_CONFIG.MAX_REQUESTS} - not incremented)`);
+      
+      return {
+        isAllowed: true,
+        requestCount: requestCount, // Return actual count since insert failed
+        resetTime: new Date(now.getTime() + RATE_LIMIT_CONFIG.WINDOW_MINUTES * 60000)
+      };
     }
 
-    console.log(`[ratelimit] ✅ Request allowed (${requestCount + 1}/${RATE_LIMIT_CONFIG.MAX_REQUESTS})`);
+    // Insert succeeded - log and return incremented count
+    const newCount = requestCount + 1;
+    console.log(`[ratelimit] ✅ Request allowed (${newCount}/${RATE_LIMIT_CONFIG.MAX_REQUESTS})`);
 
     return {
       isAllowed: true,
-      requestCount: requestCount + 1,
-      resetTime: windowEnd
+      requestCount: newCount,
+      resetTime: new Date(now.getTime() + RATE_LIMIT_CONFIG.WINDOW_MINUTES * 60000)
     };
   } catch (error) {
     console.error('[ratelimit] Unexpected error:', error);
@@ -146,14 +163,16 @@ export async function cleanupOldRateLimits(
  *
  * @param error - Error message
  * @param resetTime - When the rate limit resets
+ * @param corsHeaders - Optional CORS headers to include
  * @returns Response object with 429 status
  */
-export function rateLimitErrorResponse(error: string, resetTime?: Date): Response {
+export function rateLimitErrorResponse(error: string, resetTime?: Date, corsHeaders?: Record<string, string>): Response {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Retry-After': resetTime
-      ? String(Math.ceil((resetTime.getTime() - Date.now()) / 1000))
-      : '60'
+      ? String(Math.max(0, Math.ceil((resetTime.getTime() - Date.now()) / 1000)))
+      : '60',
+    ...(corsHeaders || {})
   };
 
   return new Response(

@@ -3,7 +3,7 @@
  * Coordinates between Duckling (primary) and Chrono-node (fallback)
  */
 
-import { parseDucklingEntities, isDucklingConfigured } from './duckling.ts';
+import { parseDucklingEntities } from './duckling.ts';
 import { parseChronoEntities } from './chrono.ts';
 import { enrichMessageWithTemporal } from './enrichment.ts';
 import type { TemporalEntity, TemporalParseResult } from '../types.ts';
@@ -19,16 +19,16 @@ import type { TemporalEntity, TemporalParseResult } from '../types.ts';
  * 
  * @param text - Text to parse for temporal expressions
  * @param referenceTime - Reference time for relative expressions (optional)
- * @returns Array of temporal entities
+ * @returns Object with entities and the parsing method that produced them
  * 
  * @example
- * const entities = await parseTemporalEntities("Rdv à 14h20", new Date());
- * // Returns entities from Duckling or Chrono, whichever succeeds
+ * const result = await parseTemporalEntities("Rdv à 14h20", new Date());
+ * // Returns { entities: [...], method: 'duckling' } or similar
  */
 export async function parseTemporalEntities(
   text: string,
   referenceTime?: Date
-): Promise<TemporalEntity[]> {
+): Promise<TemporalParseResult> {
   const refTime = referenceTime || new Date();
   
   console.log('[temporal] Parsing text:', text);
@@ -41,7 +41,7 @@ export async function parseTemporalEntities(
     
     if (ducklingEntities && ducklingEntities.length > 0) {
       console.log('[temporal] ✅ Duckling succeeded with', ducklingEntities.length, 'entities');
-      return ducklingEntities;
+      return { entities: ducklingEntities, method: 'duckling' };
     }
     
     console.log('[temporal] ⚠️ Duckling returned no entities, trying Chrono-node fallback...');
@@ -58,14 +58,14 @@ export async function parseTemporalEntities(
 
     if (chronoEntities.length > 0) {
       console.log('[temporal] ✅ Chrono-node succeeded');
+      return { entities: chronoEntities, method: 'chrono' };
     } else {
       console.log('[temporal] ❌ No temporal entities found by either parser');
+      return { entities: [], method: 'none' };
     }
-
-    return chronoEntities;
   } catch (error) {
     console.error('[temporal] ❌ Both parsers failed:', error);
-    return [];
+    return { entities: [], method: 'none' };
   }
 }
 
@@ -99,16 +99,8 @@ export async function parseAndEnrichMessage(
 }> {
   const refTime = referenceTime || new Date();
 
-  // Parse entities
-  const entities = await parseTemporalEntities(text, refTime);
-
-  // Determine which method was used (for logging)
-  let parsingMethod: 'duckling' | 'chrono' | 'none' = 'none';
-  if (entities.length > 0) {
-    // If Duckling is configured and worked, it was used
-    // Otherwise, Chrono was used
-    parsingMethod = isDucklingConfigured() ? 'duckling' : 'chrono';
-  }
+  // Parse entities - the parser now returns which method it actually used
+  const { entities, method } = await parseTemporalEntities(text, refTime);
 
   // Enrich message
   const enrichedMessage = enrichMessageWithTemporal(text, entities);
@@ -116,7 +108,7 @@ export async function parseAndEnrichMessage(
   return {
     entities,
     enrichedMessage,
-    parsingMethod
+    parsingMethod: method
   };
 }
 

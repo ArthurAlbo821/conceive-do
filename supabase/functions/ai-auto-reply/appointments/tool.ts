@@ -14,18 +14,42 @@ import type { OpenAITool, DynamicEnums } from '../types.ts';
  * 
  * The AI can ONLY use values from these enums, ensuring zero hallucination
  * 
+ * FAIL-FAST BEHAVIOR:
+ * Returns undefined if required enums are empty, preventing the tool from being
+ * exposed with invalid hardcoded fallbacks. The caller must check for undefined
+ * and handle gracefully (e.g., skip tool registration in OpenAI request).
+ * 
  * @param dynamicEnums - Dynamic enums built from user catalog
- * @returns OpenAI tool definition
+ * @returns OpenAI tool definition or undefined if enums are invalid/empty
+ * @throws {Error} If durationEnum or extraEnum are empty (missing configuration)
  * 
  * @example
  * const tool = buildAppointmentTool({
- *   prestationEnum: ['GFE', 'PSE'],
  *   extraEnum: ['Anal', 'Duo'],
  *   durationEnum: ['30min', '1h', '2h']
  * });
+ * if (!tool) {
+ *   console.error('Cannot create appointment tool: missing catalog configuration');
+ * }
  */
-export function buildAppointmentTool(dynamicEnums: DynamicEnums): OpenAITool {
+export function buildAppointmentTool(dynamicEnums: DynamicEnums): OpenAITool | undefined {
   const { durationEnum, extraEnum } = dynamicEnums;
+
+  // FAIL-FAST: Check for missing configuration before building schema
+  // Do NOT use hardcoded fallbacks as they risk producing invalid options
+  if (durationEnum.length === 0) {
+    throw new Error(
+      'Cannot build appointment tool: durationEnum is empty. ' +
+      'User catalog must contain at least one tarif with a valid duration.'
+    );
+  }
+
+  if (extraEnum.length === 0) {
+    throw new Error(
+      'Cannot build appointment tool: extraEnum is empty. ' +
+      'User catalog must contain at least one extra option.'
+    );
+  }
 
   return {
     type: 'function',
@@ -37,14 +61,14 @@ export function buildAppointmentTool(dynamicEnums: DynamicEnums): OpenAITool {
         properties: {
           duration: {
             type: 'string',
-            enum: durationEnum.length > 0 ? durationEnum : ['30min'],
+            enum: durationEnum,
             description: "Durée du rendez-vous (format: '30min', '1h', etc.)"
           },
           selected_extras: {
             type: 'array',
             items: {
               type: 'string',
-              enum: extraEnum.length > 0 ? extraEnum : ['aucun']
+              enum: extraEnum
             },
             description: 'Liste des extras choisis (peut être vide [])'
           },

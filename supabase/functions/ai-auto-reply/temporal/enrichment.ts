@@ -73,7 +73,7 @@ export function enrichMessageWithTemporal(
   // Relative expressions (e.g., "dans 50min", "pour 1h") are skipped
   const timeEntities = entities.filter((e) => {
     // Only keep 'time' entities with values
-    if (e.dim !== 'time' || !e.value.value) {
+    if (e.dim !== 'time' || !e.value || !e.value.value) {
       return false;
     }
 
@@ -122,7 +122,7 @@ export function enrichMessageWithTemporal(
  */
 export function extractAbsoluteExpressions(entities: TemporalEntity[]): TemporalEntity[] {
   return entities.filter((e) => {
-    if (e.dim !== 'time' || !e.value.value) {
+    if (e.dim !== 'time' || !e.value || !e.value.value) {
       return false;
     }
     return !isRelativeTimeExpression(e.body);
@@ -151,7 +151,15 @@ export function extractRelativeExpressions(entities: TemporalEntity[]): Temporal
  * @returns Formatted string representation
  */
 export function formatTemporalEntity(entity: TemporalEntity): string {
+  if (!entity.value || !entity.value.value) {
+    return `"${entity.body || 'unknown'}" → (no value)`;
+  }
+  
   const date = new Date(entity.value.value);
+  if (isNaN(date.getTime())) {
+    return `"${entity.body}" → (invalid date: ${entity.value.value})`;
+  }
+  
   const formatted = date.toLocaleString('fr-FR', {
     weekday: 'short',
     month: 'short',

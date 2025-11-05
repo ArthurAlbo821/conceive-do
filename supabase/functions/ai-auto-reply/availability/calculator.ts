@@ -85,8 +85,8 @@ export function computeAvailableRanges(
 
     for (let m = availStartMinute; m <= availEndMinute; m++) {
       const actualMinute = m % (24 * 60);
-      
-      // Consider slots as "past" if they're before current time OR within the minimum lead time buffer
+      // Consider slots as "past" if they're before current time + lead time
+      const isPast = m < minimumAllowedMinute;
       const isPast = actualMinute < minimumAllowedMinute && m < 24 * 60;
       const isOccupied = occupiedMinutes.has(actualMinute);
 
@@ -130,17 +130,22 @@ export function computeAvailableRanges(
  */
 export function buildOccupiedMinutesSet(appointments: Appointment[]): Set<number> {
   const occupiedMinutes = new Set<number>();
-
   for (const apt of appointments) {
     const [startH, startM] = apt.start_time.split(':').map(Number);
     const [endH, endM] = apt.end_time.split(':').map(Number);
     
     const startMinute = startH * 60 + startM;
-    const endMinute = endH * 60 + endM;
+    let endMinute = endH * 60 + endM;
+
+    // Handle midnight crossing
+    if (endMinute <= startMinute) {
+      endMinute += 24 * 60;
+    }
 
     // Mark all minutes in this appointment as occupied
     for (let m = startMinute; m < endMinute; m++) {
-      occupiedMinutes.add(m);
+      occupiedMinutes.add(m % (24 * 60));
+    }
     }
   }
 

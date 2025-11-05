@@ -35,7 +35,7 @@ Deno.test('enrichMessageWithTemporalInfo - message with time entity', () => {
 
   // Should enrich the message with temporal info
   assertEquals(result.includes('16h30'), true);
-  assertEquals(result.includes('[16:30'), true || result.includes('2025-01-15'), true);
+  assertEquals(result.includes('[16:30') || result.includes('2025-01-15'), true);
 });
 
 Deno.test('enrichMessageWithTemporalInfo - relative time (dans 2 heures)', () => {

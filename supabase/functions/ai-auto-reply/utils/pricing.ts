@@ -51,35 +51,86 @@ export function buildPriceMappings(
  * convertDurationToMinutes('1h30');  // 90
  */
 export function convertDurationToMinutes(duration: string): number {
-  // Format: "1h30" or "1h" or "30min"
-  if (duration.includes('h')) {
-    const parts = duration.split('h');
-    const hours = parseFloat(parts[0]);
-    const minutes = parts[1] ? parseInt(parts[1].replace('min', '')) : 0;
-    return hours * 60 + minutes;
-  } else if (duration.includes('min')) {
-    return parseInt(duration.replace('min', ''));
-  } else {
-    throw new Error(`Invalid duration format: ${duration}`);
+  // Trim input to remove leading/trailing whitespace
+  const trimmedDuration = duration.trim();
+  
+  if (!trimmedDuration) {
+    throw new Error('Duration cannot be empty');
   }
-}
 
+  // Format: "1h30" or "1h" or "30min"
+  if (trimmedDuration.includes('h')) {
+    const parts = trimmedDuration.split('h');
+    
+    // Validate we have exactly 2 parts (before and after 'h')
+    if (parts.length !== 2) {
+      throw new Error(`Invalid duration format: ${duration} (malformed hour format)`);
+    }
+
+    // Parse hours with explicit radix
+    const hours = parseInt(parts[0].trim(), 10);
+    
+    // Parse minutes - empty part defaults to 0
+    const minutePart = parts[1].trim().replace('min', '').trim();
+    const minutes = minutePart === '' ? 0 : parseInt(minutePart, 10);
+
+    // Check for NaN after parsing
+    if (isNaN(hours)) {
+      throw new Error(`Invalid duration format: ${duration} (invalid hours value)`);
+    }
+    if (isNaN(minutes)) {
+      throw new Error(`Invalid duration format: ${duration} (invalid minutes value)`);
+    }
+
+    // Enforce bounds: hours >= 0, minutes between 0 and 59
+    if (hours < 0) {
+      throw new Error(`Invalid duration: ${duration} (hours cannot be negative)`);
 /**
- * Calculates end time from start time and duration
- * Returns time in HH:MM format
- * Handles crossing midnight (e.g., 23:30 + 90min = 01:00)
+ * Calculates total price for an appointment
+ * CRITICAL: Prices are ALWAYS calculated server-side, never from AI output
  * 
- * @param startTime - Start time in HH:MM format
- * @param durationMinutes - Duration in minutes
- * @returns End time in HH:MM format
+ * @param baseDuration - Duration string (e.g., "1h")
+ * @param selectedExtras - Array of extra names
+ * @param priceMappings - Price mappings from buildPriceMappings()
+ * @returns Object with basePrice, extrasTotal, and totalPrice
+ * @throws Error if duration or any extra is not found in mappings
  * 
  * @example
- * calculateEndTime('14:30', 60); // '15:30'
- * calculateEndTime('23:30', 90); // '01:00' (crosses midnight)
+ * const result = calculateTotalPrice('1h', ['Massage'], mappings);
+ * // { basePrice: 150, extrasTotal: 50, totalPrice: 200 }
  */
-export function calculateEndTime(startTime: string, durationMinutes: number): string {
-  const [hours, minutes] = startTime.split(':').map(Number);
-  const totalMinutes = hours * 60 + minutes + durationMinutes;
+export function calculateTotalPrice(
+  baseDuration: string,
+  selectedExtras: string[],
+  priceMappings: PriceMappings
+): {
+  basePrice: number;
+  extrasTotal: number;
+  totalPrice: number;
+} {
+  // Get base price from duration
+  const basePrice = priceMappings.durationToPriceMap[baseDuration];
+  if (basePrice === undefined) {
+    throw new Error(`Invalid duration: ${baseDuration}. Not found in price mappings.`);
+  }
+
+  // Calculate extras total
+  const extrasTotal = selectedExtras.reduce((sum, extraName) => {
+    const extraPrice = priceMappings.extraToPriceMap[extraName];
+    if (extraPrice === undefined) {
+      throw new Error(`Invalid extra: ${extraName}. Not found in price mappings.`);
+    }
+    return sum + extraPrice;
+  }, 0);
+
+  const totalPrice = basePrice + extrasTotal;
+
+  return {
+    basePrice,
+    extrasTotal,
+    totalPrice
+  };
+}
   const endHours = Math.floor(totalMinutes / 60) % 24;
   const endMinutes = totalMinutes % 60;
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
@@ -149,10 +200,16 @@ export function buildStructuredExtras(
   selectedExtras: string[],
   extraToPriceMap: Record<string, number>
 ): StructuredExtra[] {
-  return selectedExtras.map((extraName) => ({
-    name: extraName,
-    price: extraToPriceMap[extraName] || 0
-  }));
+  return selectedExtras.map((extraName) => {
+    const extraPrice = extraToPriceMap[extraName];
+    if (extraPrice === undefined) {
+      console.warn(`[pricing] Unknown extra: ${extraName}, skipping`);
+    }
+    return {
+      name: extraName,
+      price: extraPrice ?? 0
+    };
+  });
 }
 
 /**

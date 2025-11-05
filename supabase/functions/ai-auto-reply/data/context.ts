@@ -29,19 +29,19 @@ import type { UserInformation, UserContext, CurrentDateTime } from '../types.ts'
  * // }
  */
 export function buildUserContext(userInfo: UserInformation): UserContext {
-  // Format prestations (array of objects or strings)
   const prestations = Array.isArray(userInfo.prestations)
-    ? userInfo.prestations.map((p) => (typeof p === 'object' ? p.name : p) || p).join(', ')
+    ? userInfo.prestations.map((p) => (typeof p === 'object' ? (p.name || 'Sans nom') : p)).join(', ')
     : 'Non spécifié';
 
   // Format extras (array of objects with name and price)
   const extras = Array.isArray(userInfo.extras) && userInfo.extras.length > 0
-    ? userInfo.extras.map((e) => `${e.name || e} (CHF ${e.price || 'prix non spécifié'})`).join(', ')
+    ? userInfo.extras.map((e) => `${e.name || 'Sans nom'} (CHF ${e.price || 'prix non spécifié'})`).join(', ')
     : 'Aucun';
 
   // Format taboos (array of objects or strings)
   const taboos = Array.isArray(userInfo.taboos) && userInfo.taboos.length > 0
-    ? userInfo.taboos.map((t) => (typeof t === 'object' ? t.name : t) || t).join(', ')
+    ? userInfo.taboos.map((t) => (typeof t === 'object' ? (t.name || 'Sans nom') : t)).join(', ')
+    : 'Aucun';
     : 'Aucun';
 
   // Format tarifs (array of objects with duration and price)
@@ -134,10 +134,10 @@ export function formatDayName(dayNumber: number): string {
 export function formatAvailabilitiesForPrompt(
   availabilities: Array<{ day_of_week: number; start_time: string; end_time: string }>
 ): string {
-  if (!availabilities || availabilities.length === 0) {
-    return 'Aucune disponibilité configurée';
-  }
-
+  return availabilities
+    .map((a) => `- ${DAYS_FR[a.day_of_week] || 'Jour invalide'} : ${a.start_time} - ${a.end_time}`)
+    .join('\n');
+}
   return availabilities
     .map((a) => `${DAYS_FR[a.day_of_week]} : ${a.start_time} - ${a.end_time}`)
     .join('\n- ');
@@ -191,5 +191,5 @@ export function formatTimeFromMinutes(minutes: number): string {
 export function crossesMidnight(startTime: string, endTime: string): boolean {
   const startMinutes = getMinutesFromMidnight(startTime);
   const endMinutes = getMinutesFromMidnight(endTime);
-  return endMinutes <= startMinutes;
+  return endMinutes < startMinutes;
 }

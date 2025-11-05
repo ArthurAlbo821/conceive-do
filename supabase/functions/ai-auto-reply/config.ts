@@ -6,8 +6,49 @@
 // ============================================================================
 // CORS Configuration
 // ============================================================================
+
+/**
+ * Génère les en-têtes CORS en validant l'origine de la requête
+ * contre une liste blanche configurée via variables d'environnement.
+ * 
+ * @param requestOrigin - L'origine de la requête HTTP (header Origin)
+ * @returns Les en-têtes CORS appropriés
+ */
+export function getCorsHeaders(requestOrigin?: string | null): Record<string, string> {
+  const allowedOriginsEnv = Deno.env.get('ALLOWED_ORIGINS') || Deno.env.get('ALLOWED_ORIGIN') || '';
+  
+  // Parse les origines autorisées (séparées par des virgules)
+  const allowedOrigins = allowedOriginsEnv
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(origin => origin.length > 0);
+  
+  // Fallback pour le développement local si aucune origine n'est configurée
+  if (allowedOrigins.length === 0) {
+    allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
+  }
+  
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
+  };
+  
+  // Valide l'origine de la requête contre la liste blanche
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    headers['Access-Control-Allow-Origin'] = requestOrigin;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  } else if (allowedOrigins.length > 0 && !requestOrigin) {
+    // Si pas d'origine dans la requête mais des origines sont configurées,
+    // utilise la première origine de la liste (utile pour les requêtes non-browser)
+    headers['Access-Control-Allow-Origin'] = allowedOrigins[0];
+  }
+  // Si l'origine n'est pas autorisée, on n'inclut pas l'en-tête Access-Control-Allow-Origin
+  
+  return headers;
+}
+
+// Export de la constante pour compatibilité (à utiliser seulement si pas d'accès à Request)
+// ATTENTION: Utiliser getCorsHeaders() à la place dans les handlers
 export const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
 };
 

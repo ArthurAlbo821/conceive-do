@@ -30,7 +30,11 @@ const envSchema = z.object({
   OPENAI_API_KEY: z
     .string()
     .min(1, 'OPENAI_API_KEY is required')
-    .startsWith('sk-', 'OPENAI_API_KEY must start with "sk-"'),
+    .startsWith('sk-', 'OPENAI_API_KEY must start with "sk-"')
+    .refine(
+      (key) => !key.startsWith('sk-proj-'),
+      'OPENAI_API_KEY: Project-scoped keys (sk-proj-) are not supported. Please use a standard secret key (sk-...)'
+    ),
 
   // Optional: Duckling API for temporal parsing
   DUCKLING_API_URL: z
@@ -85,8 +89,12 @@ export function validateEnv(): Env {
       console.error('[env] 📝 Required variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, OPENAI_API_KEY');
       console.error('[env] 📝 Optional variables: DUCKLING_API_URL');
 
-      // Exit with error code
-      Deno.exit(1);
+      console.error('[env] 💡 Please check your environment variables and try again.');
+      console.error('[env] 📝 Required variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, OPENAI_API_KEY');
+      console.error('[env] 📝 Optional variables: DUCKLING_API_URL');
+      
+      // Throw error to let caller handle it
+      throw new Error('Environment variable validation failed. See console output above for details.');
     }
 
     // Re-throw unexpected errors

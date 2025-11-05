@@ -113,34 +113,42 @@ export function formatMessagesForOpenAI(
 }
 
 /**
- * Calls OpenAI API with retry logic
+ * Calls OpenAI API
  * 
  * @param requestBody - OpenAI request body
  * @param apiKey - OpenAI API key
  * @returns OpenAI response
- * @throws Error if API call fails
+ * @throws Error if API call fails after retries
  */
 export async function callOpenAI(
   requestBody: OpenAIRequestBody,
   apiKey: string
 ): Promise<OpenAIResponse> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(requestBody)
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+  
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('[openai] API error:', response.status, errorText);
-    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[openai] API error:', response.status, errorText);
+      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+    }
+
+    const data: OpenAIResponse = await response.json();
+    return data;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data: OpenAIResponse = await response.json();
-  return data;
 }
 
 /**
@@ -148,21 +156,61 @@ export async function callOpenAI(
  * Handles both normal responses and JSON responses (WAITING mode)
  * 
  * @param response - OpenAI response
- * @returns Message content string
+ * @returns Message content string, or empty string if structure is invalid
  */
 export function extractMessageContent(response: OpenAIResponse): string {
-  return response.choices[0].message.content;
+  // Validate response is an object
+  if (!response || typeof response !== 'object') {
+    console.error('[openai] Invalid response: not an object');
+    return '';
+  }
+
+  // Validate choices array exists and has at least one element
+  if (!Array.isArray(response.choices) || response.choices.length === 0) {
+    console.error('[openai] Invalid response: choices array is missing or empty');
+    return '';
+  }
+
+  // Validate first choice has a message object
+  const firstChoice = response.choices[0];
+  if (!firstChoice || typeof firstChoice !== 'object' || !firstChoice.message) {
+    console.error('[openai] Invalid response: first choice or message is missing');
+    return '';
+  }
+
+  // Validate message.content is a string
+  const content = firstChoice.message.content;
+  if (typeof content !== 'string') {
+    console.error('[openai] Invalid response: message.content is not a string');
+    return '';
+  }
+
+  return content;
 }
 
 /**
- * Checks if OpenAI response includes a tool call
+ * Checks if OpenAI response contains a tool call
  * 
  * @param response - OpenAI response
  * @returns true if tool call present, false otherwise
  */
 export function hasToolCall(response: OpenAIResponse): boolean {
-  return response.choices[0].finish_reason === 'tool_calls' && 
-         !!response.choices[0].message.tool_calls;
+  // Validate response structure first
+  if (!response || typeof response !== 'object') {
+    return false;
+  }
+
+  if (!Array.isArray(response.choices) || response.choices.length === 0) {
+    return false;
+  }
+
+  const firstChoice = response.choices[0];
+  if (!firstChoice || typeof firstChoice !== 'object') {
+    return false;
+  }
+  
+  return firstChoice.finish_reason === 'tool_calls' && 
+         !!firstChoice.message?.tool_calls;
 }
 
 /**
@@ -176,7 +224,14 @@ export function extractToolCall(response: OpenAIResponse) {
     return null;
   }
 
-  return response.choices[0].message.tool_calls![0];
+  // Additional validation for tool_calls array
+  const toolCalls = response.choices[0]?.message?.tool_calls;
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    console.error('[openai] Tool calls array is missing or empty');
+    return null;
+  }
+
+  return toolCalls[0];
 }
 
 /**

@@ -152,7 +152,7 @@ export interface ChronoResult {
 
 export interface TemporalParseResult {
   entities: TemporalEntity[];
-  method: 'duckling' | 'chrono';
+  method: 'duckling' | 'chrono' | 'none';
 }
 
 // ============================================================================

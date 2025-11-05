@@ -55,7 +55,8 @@ DUCKLING_API_URL=https://duckling.railway.app
 ### 3. Git Commit (optionnel mais recommandé)
 
 ```bash
-cd /Users/arthurhernandes/conceive-do
+# Se positionner à la racine du projet
+cd <project-root>
 
 # Ajouter tous les nouveaux fichiers
 git add supabase/functions/ai-auto-reply/
@@ -85,7 +86,8 @@ git push origin Ai_structure
 ### 4. Déployer la Fonction
 
 ```bash
-cd /Users/arthurhernandes/conceive-do
+# Se positionner à la racine du projet
+cd <project-root>
 
 # Déployer
 supabase functions deploy ai-auto-reply

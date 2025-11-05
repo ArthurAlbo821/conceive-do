@@ -22,7 +22,7 @@ import { validateEnv } from './config/env.ts';
 const env = validateEnv();
 
 // Config
-import { AI_MODES, APPOINTMENT_STATUS } from './config.ts';
+import { AI_MODES, APPOINTMENT_STATUS, getCorsHeaders } from './config.ts';
 
 // Security
 import { validateJWT, authErrorResponse } from './security/auth.ts';
@@ -77,6 +77,23 @@ Deno.serve(async (request) => {
   console.log('\n=== 🚀 JOBLYA V4 - AI Auto-Reply Request ===');
   console.log('[main] Request received at:', new Date().toISOString());
 
+  // Get CORS headers based on request origin
+  const requestOrigin = request.headers.get('Origin');
+  const corsHeaders = getCorsHeaders(requestOrigin);
+
+  // Handle CORS preflight requests
+  if (request.method === 'OPTIONS') {
+    console.log('[cors] Handling preflight request from origin:', requestOrigin);
+    return new Response(null, { 
+      status: 204,
+      headers: {
+        ...corsHeaders,
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Max-Age': '86400' // 24 hours
+      }
+    });
+  }
+
   // Store parsed request body for reuse in error handling
   let requestBody: any = null;
 
@@ -90,7 +107,7 @@ Deno.serve(async (request) => {
 
     if (!auth.isValid) {
       console.error('[auth] Authentication failed:', auth.error);
-      return authErrorResponse(auth.error!);
+      return authErrorResponse(auth.error!, corsHeaders);
     }
 
     const user_id = auth.user_id!;
@@ -108,7 +125,7 @@ Deno.serve(async (request) => {
       console.error('[main] Missing required fields');
       return new Response(
         JSON.stringify({ error: 'Missing conversation_id or message_text' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
     
@@ -133,7 +150,7 @@ Deno.serve(async (request) => {
 
     if (!rateLimit.isAllowed) {
       console.error('[ratelimit] ❌ Rate limit exceeded');
-      return rateLimitErrorResponse(rateLimit.error!, rateLimit.resetTime);
+      return rateLimitErrorResponse(rateLimit.error!, rateLimit.resetTime, corsHeaders);
     }
 
     console.log('[ratelimit] ✅ Request allowed');
@@ -225,10 +242,18 @@ Deno.serve(async (request) => {
         priceMappings
       );
       
-      appointmentTool = buildAppointmentTool(dynamicEnums);
+      // Build appointment tool with fail-fast validation
+      // If enums are empty, the tool will be undefined and not exposed to the AI
+      try {
+        appointmentTool = buildAppointmentTool(dynamicEnums);
+        console.log('[prompt] ✅ Appointment tool configured');
+      } catch (error) {
+        console.error('[prompt] ⚠️ Cannot build appointment tool:', error.message);
+        console.error('[prompt] ⚠️ AI will operate without appointment creation capability');
+        appointmentTool = undefined;
+      }
       
       console.log('[prompt] ✅ WORKFLOW prompt built (', systemPrompt.length, 'chars)');
-      console.log('[prompt] ✅ Appointment tool configured');
     }
 
     // ========================================
@@ -454,7 +479,7 @@ Deno.serve(async (request) => {
       }),
       { 
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
 
@@ -506,7 +531,7 @@ Deno.serve(async (request) => {
       }),
       { 
         status: 500,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     );
   }
