@@ -70,7 +70,6 @@ export async function validateJWT(
 
     console.log('[auth] JWT validated successfully');
     return { isValid: true, user_id };
-    return { isValid: true, user_id };
 
   } catch (error) {
     console.error('[auth] JWT verification failed:', error);

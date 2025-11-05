@@ -15,23 +15,24 @@ import type { OpenAITool, DynamicEnums } from '../types.ts';
  * The AI can ONLY use values from these enums, ensuring zero hallucination
  * 
  * FAIL-FAST BEHAVIOR:
- * Returns undefined if required enums are empty, preventing the tool from being
- * exposed with invalid hardcoded fallbacks. The caller must check for undefined
- * and handle gracefully (e.g., skip tool registration in OpenAI request).
+ * Throws an error if required enums are empty, preventing the tool from being
+ * exposed with invalid hardcoded fallbacks. The caller must handle the error
+ * and skip tool registration in OpenAI request.
  * 
  * @param dynamicEnums - Dynamic enums built from user catalog
- * @returns OpenAI tool definition or undefined if enums are invalid/empty
+ * @returns OpenAI tool definition with validated enums
  * @throws {Error} If durationEnum or extraEnum are empty (missing configuration)
  * 
  * @example
- * const tool = buildAppointmentTool({
- *   extraEnum: ['Anal', 'Duo'],
- *   durationEnum: ['30min', '1h', '2h']
- * });
- * if (!tool) {
- *   console.error('Cannot create appointment tool: missing catalog configuration');
+ * try {
+ *   const tool = buildAppointmentTool({
+ *     extraEnum: ['Anal', 'Duo'],
+ *     durationEnum: ['30min', '1h', '2h']
+ *   });
+ *   // Use tool...
+ * } catch (error) {
+ *   console.error('Cannot create appointment tool:', error.message);
  * }
- */
 export function buildAppointmentTool(dynamicEnums: DynamicEnums): OpenAITool | undefined {
   const { durationEnum, extraEnum } = dynamicEnums;
 

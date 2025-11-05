@@ -40,9 +40,9 @@ export function buildUserContext(userInfo: UserInformation): UserContext {
 
   // Format taboos (array of objects or strings)
   const taboos = Array.isArray(userInfo.taboos) && userInfo.taboos.length > 0
-    ? userInfo.taboos.map((t) => (typeof t === 'object' ? (t.name || 'Sans nom') : t)).join(', ')
-    : 'Aucun';
-    : 'Aucun';
+    const taboos = Array.isArray(userInfo.taboos) && userInfo.taboos.length > 0
+      ? userInfo.taboos.map((t) => (typeof t === 'object' ? (t.name || 'Sans nom') : t)).join(', ')
+      : 'Aucun';
 
   // Format tarifs (array of objects with duration and price)
   const tarifs = Array.isArray(userInfo.tarifs)

@@ -23,16 +23,23 @@ export function getCorsHeaders(requestOrigin?: string | null): Record<string, st
     .map(origin => origin.trim())
     .filter(origin => origin.length > 0);
   
-  // Fallback pour le développement local si aucune origine n'est configurée
+  // Vérification stricte en production : les origines CORS doivent être explicitement configurées
+  const nodeEnv = Deno.env.get('NODE_ENV');
   if (allowedOrigins.length === 0) {
+    if (nodeEnv === 'production') {
+      throw new Error(
+        'ALLOWED_ORIGINS must be explicitly set in production environment. ' +
+        'Configure ALLOWED_ORIGINS environment variable with comma-separated allowed origins.'
+      );
+    }
+    // Fallback pour le développement local uniquement
     allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
   }
   
-  const headers: Record<string, string> = {
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
-  };
-  
-  // Valide l'origine de la requête contre la liste blanche
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    headers['Access-Control-Allow-Origin'] = requestOrigin;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  }
   if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
     headers['Access-Control-Allow-Origin'] = requestOrigin;
     headers['Access-Control-Allow-Credentials'] = 'true';

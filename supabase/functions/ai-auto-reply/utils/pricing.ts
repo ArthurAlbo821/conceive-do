@@ -85,55 +85,27 @@ export function convertDurationToMinutes(duration: string): number {
     // Enforce bounds: hours >= 0, minutes between 0 and 59
     if (hours < 0) {
       throw new Error(`Invalid duration: ${duration} (hours cannot be negative)`);
-/**
- * Calculates total price for an appointment
- * CRITICAL: Prices are ALWAYS calculated server-side, never from AI output
- * 
- * @param baseDuration - Duration string (e.g., "1h")
- * @param selectedExtras - Array of extra names
- * @param priceMappings - Price mappings from buildPriceMappings()
- * @returns Object with basePrice, extrasTotal, and totalPrice
- * @throws Error if duration or any extra is not found in mappings
- * 
- * @example
- * const result = calculateTotalPrice('1h', ['Massage'], mappings);
- * // { basePrice: 150, extrasTotal: 50, totalPrice: 200 }
- */
-export function calculateTotalPrice(
-  baseDuration: string,
-  selectedExtras: string[],
-  priceMappings: PriceMappings
-): {
-  basePrice: number;
-  extrasTotal: number;
-  totalPrice: number;
-} {
-  // Get base price from duration
-  const basePrice = priceMappings.durationToPriceMap[baseDuration];
-  if (basePrice === undefined) {
-    throw new Error(`Invalid duration: ${baseDuration}. Not found in price mappings.`);
-  }
-
-  // Calculate extras total
-  const extrasTotal = selectedExtras.reduce((sum, extraName) => {
-    const extraPrice = priceMappings.extraToPriceMap[extraName];
-    if (extraPrice === undefined) {
-      throw new Error(`Invalid extra: ${extraName}. Not found in price mappings.`);
     }
-    return sum + extraPrice;
-  }, 0);
+    if (minutes < 0 || minutes > 59) {
+      throw new Error(`Invalid duration: ${duration} (minutes must be between 0 and 59)`);
+    }
 
-  const totalPrice = basePrice + extrasTotal;
-
-  return {
-    basePrice,
-    extrasTotal,
-    totalPrice
-  };
-}
-  const endHours = Math.floor(totalMinutes / 60) % 24;
-  const endMinutes = totalMinutes % 60;
-  return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+    return hours * 60 + minutes;
+  } else if (trimmedDuration.endsWith('min')) {
+    const minuteStr = trimmedDuration.replace('min', '').trim();
+    const minutes = parseInt(minuteStr, 10);
+    
+    if (isNaN(minutes)) {
+      throw new Error(`Invalid duration format: ${duration} (invalid minutes value)`);
+    }
+    if (minutes < 0) {
+      throw new Error(`Invalid duration: ${duration} (minutes cannot be negative)`);
+    }
+    
+    return minutes;
+  } else {
+    throw new Error(`Invalid duration format: ${duration} (must end with 'h' or 'min')`);
+  }
 }
 
 /**

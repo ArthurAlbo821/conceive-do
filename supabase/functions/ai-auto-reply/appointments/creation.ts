@@ -163,52 +163,7 @@ export async function createAppointment(
   // Calculate duration in minutes
   const durationMinutes = parseDurationToMinutes(appointmentData.duration);
   
-  // Calculate end time
-  const endTime = calculateEndTime(appointmentData.appointment_time, durationMinutes);
-  
-  // Calculate total price
-  const totalPrice = calculateTotalPrice(
-    appointmentData.duration,
-    appointmentData.selected_extras,
-    priceMappings
-  );
-  
-  // Determine service name
-  const serviceName = determineServiceName(userInfo, appointmentData.selected_extras);
-  
-  // Build appointment object
-  const appointmentToCreate = {
-    conversation_id: conversationId,
-    user_id: userId,
-    appointment_date: appointmentData.appointment_date,
-    start_time: appointmentData.appointment_time,
-    end_time: endTime,
-    duration_minutes: durationMinutes,
-    service: serviceName,
-    extras: appointmentData.selected_extras.filter(e => e !== 'aucun'),
-    total_price: totalPrice,
-    status: APPOINTMENT_STATUS.CONFIRMED,
-    client_arrived: false,
-    provider_ready_to_receive: false
-  };
-  
-  console.log('[appointment] Creating appointment:', appointmentToCreate);
-  
-  // Insert into database
-  const { data, error } = await supabase
-    .from('appointments')
-    .insert(appointmentToCreate)
-    .select()
-    .single();
-  
-  if (error) {
-    console.error('[appointment] Error creating appointment:', error);
-    throw error;
-  }
-  
-  console.log('[appointment] Appointment created successfully:', data.id);
-  return data;
-}
+
   // Calculate end time
   const endTime = calculateEndTime(appointmentData.appointment_time, durationMinutes);
   

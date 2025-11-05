@@ -491,9 +491,8 @@ Deno.serve(async (request) => {
     console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
     
     // Try to log error (may fail if user_id/conversation_id not available)
-    } catch (loggingError) {
-      console.error('Failed to log error:', loggingError);
-    }
+    try {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       
       // Use previously parsed request body, or try to parse if not available
@@ -520,8 +519,8 @@ Deno.serve(async (request) => {
           );
         }
       }
-    } catch (logError) {
-      console.error('Failed to log error:', logError);
+    } catch (loggingError) {
+      console.error('Failed to log error:', loggingError);
     }
     
     return new Response(

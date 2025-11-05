@@ -26,14 +26,19 @@ export function toFranceTime(utcDate: Date): Date {
 }
 
 /**
- * Gets the current time
+ * Gets the current time (UTC)
+ * 
+ * Note: This returns a standard JavaScript Date object representing the current moment.
+ * Use the timezone-aware helper functions (getFranceDay, getFranceHours, etc.) to extract
+ * components in France timezone.
  * 
  * @returns Current Date (UTC)
  * 
  * @example
- * const now = getCurrentFranceTime();
+ * const now = getCurrentTime();
+ * const franceHour = getFranceHours(now); // Get hour in France timezone
  */
-export function getCurrentFranceTime(): Date {
+export function getCurrentTime(): Date {
   return new Date();
 }
 
