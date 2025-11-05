@@ -3,7 +3,8 @@
  * Formats user data and current datetime for AI prompts
  */
 
-import { DAYS_FR } from '../config.ts';
+import { DAYS_FR, USER_TIMEZONE } from '../config.ts';
+import { getFranceDay, getFranceDate, getFranceMonth, getFranceYear, getFranceHours, getFranceMinutes } from '../utils/timezone.ts';
 import type { UserInformation, UserContext, CurrentDateTime } from '../types.ts';
 
 /**
@@ -64,11 +65,11 @@ export function buildUserContext(userInfo: UserInformation): UserContext {
  * Builds current date and time context for AI prompts
  * Decomposes a Date into all useful parts for the AI
  * 
- * @param now - Current date in France timezone (from toFranceTime())
- * @returns Current datetime context with all components
+ * @param now - Current date (UTC Date)
+ * @returns Current datetime context with all components in France timezone
  * 
  * @example
- * const now = toFranceTime(new Date());
+ * const now = new Date();
  * const context = buildCurrentDateTime(now);
  * // {
  * //   fullDate: "jeudi 14 novembre 2024",
@@ -82,23 +83,26 @@ export function buildUserContext(userInfo: UserInformation): UserContext {
  * // }
  */
 export function buildCurrentDateTime(now: Date): CurrentDateTime {
+  // Use Intl API with France timezone for all formatting
   return {
     fullDate: now.toLocaleDateString('fr-FR', {
+      timeZone: USER_TIMEZONE,
       weekday: 'long',
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     }),
     time: now.toLocaleTimeString('fr-FR', {
+      timeZone: USER_TIMEZONE,
       hour: '2-digit',
       minute: '2-digit'
     }),
-    dayOfWeek: DAYS_FR[now.getDay()],
-    date: now.getDate(),
-    month: now.getMonth() + 1,
-    year: now.getFullYear(),
-    hour: now.getHours(),
-    minute: now.getMinutes()
+    dayOfWeek: DAYS_FR[getFranceDay(now)],
+    date: getFranceDate(now),
+    month: getFranceMonth(now),
+    year: getFranceYear(now),
+    hour: getFranceHours(now),
+    minute: getFranceMinutes(now)
   };
 }
 

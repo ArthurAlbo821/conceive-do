@@ -39,7 +39,7 @@ export async function fetchConversationMessages(
 
   if (error) {
     console.error('[data] Error fetching messages:', error);
-    throw new Error('Failed to fetch messages');
+    throw new Error(`Failed to fetch messages: ${error.message}`);
   }
 
   // Reverse to have chronological order (oldest first)
@@ -58,6 +58,7 @@ export async function fetchConversationMessages(
  * @param supabase - Supabase client
  * @param conversationId - Conversation ID
  * @returns Appointment object if found today, null otherwise
+ * @throws Error if appointment check fails
  * 
  * @example
  * const todayAppt = await checkTodayAppointment(supabase, conversation_id);
@@ -83,10 +84,10 @@ export async function checkTodayAppointment(
     .eq('appointment_date', today)
     .eq('status', APPOINTMENT_STATUS.CONFIRMED)
     .maybeSingle();
-
   if (error) {
     console.error('[data] Error checking today appointment:', error);
-    return null;
+    throw new Error(`Failed to check today's appointment: ${error.message}`);
+  }
   }
 
   if (data) {
@@ -121,10 +122,10 @@ export async function getConversationContactPhone(
     .select('contact_phone')
     .eq('id', conversationId)
     .single();
-
-  if (error || !data) {
+  if (error) {
     console.error('[data] Error fetching conversation:', error);
-    return null;
+    throw new Error(`Failed to fetch conversation: ${error.message}`);
+  }
   }
 
   return data as { contact_phone: string };

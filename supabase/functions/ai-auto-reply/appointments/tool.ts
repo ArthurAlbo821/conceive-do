@@ -50,11 +50,13 @@ export function buildAppointmentTool(dynamicEnums: DynamicEnums): OpenAITool {
           },
           appointment_date: {
             type: 'string',
-            description: 'Date du rendez-vous (format: YYYY-MM-DD)'
+            description: 'Date du rendez-vous (format: YYYY-MM-DD)',
+            pattern: '^\\d{4}-\\d{2}-\\d{2}$'
           },
           appointment_time: {
             type: 'string',
-            description: 'Heure du rendez-vous (format: HH:MM en 24h, ex: 14:30)'
+            description: 'Heure du rendez-vous (format: HH:MM en 24h, ex: 14:30)',
+            pattern: '^([01]\\d|2[0-3]):[0-5]\\d$'
           }
         },
         required: ['duration', 'selected_extras', 'appointment_date', 'appointment_time'],

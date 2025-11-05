@@ -25,17 +25,23 @@ import type { UserInformation, DynamicEnums } from '../types.ts';
 export function buildDynamicEnums(userInfo: UserInformation): DynamicEnums {
   // Extract prestation names
   const prestationEnum = Array.isArray(userInfo.prestations)
-    ? userInfo.prestations.map((p) => (typeof p === 'object' ? p.name : p) || p)
+    ? userInfo.prestations
+        .map((p) => (p && typeof p === 'object' ? p.name : p))
+        .filter((name): name is string => typeof name === 'string' && name.length > 0)
     : [];
 
   // Extract extra names
   const extraEnum = Array.isArray(userInfo.extras)
-    ? userInfo.extras.map((e) => (typeof e === 'object' ? e.name : e) || e)
+    ? userInfo.extras
+        .map((e) => (e && typeof e === 'object' ? e.name : e))
+        .filter((name): name is string => typeof name === 'string' && name.length > 0)
     : [];
 
   // Extract duration values from tarifs
   const durationEnum = Array.isArray(userInfo.tarifs)
-    ? userInfo.tarifs.map((t) => t.duration)
+    ? userInfo.tarifs
+        .map((t) => t?.duration)
+        .filter((duration): duration is string => typeof duration === 'string' && duration.length > 0)
     : [];
 
   return {

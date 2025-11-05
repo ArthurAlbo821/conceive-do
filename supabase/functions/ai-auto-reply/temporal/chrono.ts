@@ -24,10 +24,10 @@ import type { TemporalEntity, ChronoResult } from '../types.ts';
  * const entities = await parseChronoEntities("dans 1h", new Date());
  * // [{ body: "dans 1h", dim: "time", value: { value: "2025-01-15T15:00:00.000Z" }, ... }]
  */
-export async function parseChronoEntities(
+export function parseChronoEntities(
   text: string,
   referenceTime?: Date
-): Promise<TemporalEntity[]> {
+): TemporalEntity[] {
   const refTime = referenceTime || new Date();
 
   console.log('[chrono] Parsing text:', text);

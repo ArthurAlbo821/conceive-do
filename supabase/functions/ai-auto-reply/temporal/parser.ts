@@ -37,7 +37,7 @@ export async function parseTemporalEntities(
   // 1️⃣ Try Duckling first (more accurate for French)
   try {
     console.log('[temporal] Trying Duckling (primary)...');
-    const ducklingEntities = await parseDucklingEntities(text, refTime);
+    const ducklingEntities = await parseDucklingEntities(text);
     
     if (ducklingEntities && ducklingEntities.length > 0) {
       console.log('[temporal] ✅ Duckling succeeded with', ducklingEntities.length, 'entities');
@@ -141,7 +141,7 @@ export async function parseTemporalWithFallback(
   if (ducklingUrl) {
     console.log('[temporal] Attempting Duckling parse...');
     try {
-      const entities = await parseDucklingEntities(text, refTime);
+      const entities = await parseDucklingEntities(text);
       console.log('[temporal] ✅ Duckling parse successful');
       return { entities, method: 'duckling' };
     } catch (error) {

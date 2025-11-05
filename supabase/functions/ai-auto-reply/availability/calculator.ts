@@ -4,7 +4,7 @@
  */
 
 import { APPOINTMENT_CONFIG } from '../config.ts';
-import { toFranceTime, toFranceISODate } from '../utils/timezone.ts';
+import { toFranceTime, toFranceISODate, getFranceDay, getFranceHours, getFranceMinutes } from '../utils/timezone.ts';
 import type { Availability, Appointment } from '../types.ts';
 
 /**
@@ -27,7 +27,7 @@ import type { Availability, Appointment } from '../types.ts';
  * 
  * @param availabilities - User's availability schedule
  * @param appointments - Existing appointments
- * @param currentDate - Current date in France timezone (from toFranceTime())
+ * @param currentDate - Current date (UTC Date, will be interpreted in France timezone)
  * @returns Formatted string of available ranges (e.g., "14h-16h, 18h30-2h (jusqu'à demain matin)")
  * 
  * @example
@@ -44,7 +44,8 @@ export function computeAvailableRanges(
     return "Aucune dispo configurée";
   }
 
-  const dayOfWeek = currentDate.getDay();
+  // Extract components in France timezone
+  const dayOfWeek = getFranceDay(currentDate);
   const dateStr = toFranceISODate(currentDate);
 
   // Find availabilities for today
@@ -60,8 +61,8 @@ export function computeAvailableRanges(
   // Build array of all occupied minutes
   const occupiedMinutes = buildOccupiedMinutesSet(todayAppointments);
 
-  // Current time in minutes + minimum booking lead time
-  const currentMinute = currentDate.getHours() * 60 + currentDate.getMinutes();
+  // Current time in minutes + minimum booking lead time (in France timezone)
+  const currentMinute = getFranceHours(currentDate) * 60 + getFranceMinutes(currentDate);
   const minimumAllowedMinute = currentMinute + APPOINTMENT_CONFIG.MIN_BOOKING_LEAD_TIME_MINUTES;
 
   // Build available ranges
@@ -185,7 +186,7 @@ export function formatTimeRange(startMinute: number, endMinute: number): string 
  * @param availableRanges - Available ranges string from computeAvailableRanges()
  * @param availabilities - User's availability schedule
  * @param appointments - Existing appointments
- * @param currentDate - Current date in France timezone
+ * @param currentDate - Current date (UTC Date, will be interpreted in France timezone)
  * @returns true if time is available, false otherwise
  * 
  * @example
@@ -215,8 +216,8 @@ export function isTimeInAvailableRanges(
   const [hours, minutes] = time.split(':').map(Number);
   const timeMinutes = hours * 60 + minutes;
 
-  // Build occupied set and check lead time
-  const currentMinute = currentDate.getHours() * 60 + currentDate.getMinutes();
+  // Build occupied set and check lead time (in France timezone)
+  const currentMinute = getFranceHours(currentDate) * 60 + getFranceMinutes(currentDate);
   const minimumAllowedMinute = currentMinute + APPOINTMENT_CONFIG.MIN_BOOKING_LEAD_TIME_MINUTES;
 
   if (timeMinutes < minimumAllowedMinute) {
@@ -231,8 +232,8 @@ export function isTimeInAvailableRanges(
     return false; // Time is occupied
   }
 
-  // Check if time falls within any availability window
-  const dayOfWeek = currentDate.getDay();
+  // Check if time falls within any availability window (in France timezone)
+  const dayOfWeek = getFranceDay(currentDate);
   const todayAvails = availabilities.filter(a => a.day_of_week === dayOfWeek);
 
   for (const avail of todayAvails) {
@@ -266,7 +267,7 @@ export function isTimeInAvailableRanges(
  * 
  * @param availabilities - User's availability schedule
  * @param appointments - Existing appointments
- * @param currentDate - Current date in France timezone
+ * @param currentDate - Current date (UTC Date, will be interpreted in France timezone)
  * @returns Next available time in HH:MM format, or null if none available today
  */
 export function getNextAvailableSlot(

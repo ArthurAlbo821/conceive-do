@@ -77,6 +77,9 @@ Deno.serve(async (request) => {
   console.log('\n=== 🚀 JOBLYA V4 - AI Auto-Reply Request ===');
   console.log('[main] Request received at:', new Date().toISOString());
 
+  // Store parsed request body for reuse in error handling
+  let requestBody: any = null;
+
   try {
     // ========================================
     // 1. AUTHENTICATION
@@ -98,7 +101,8 @@ Deno.serve(async (request) => {
     // ========================================
     console.log('\n[2/12] 📦 Parse request body...');
     
-    const { conversation_id, message_text } = await request.json();
+    requestBody = await request.json();
+    const { conversation_id, message_text } = requestBody;
     
     if (!conversation_id || !message_text) {
       console.error('[main] Missing required fields');
@@ -160,7 +164,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 5. TEMPORAL PARSING
     // ========================================
-    console.log('\n[6/13] ⏰ Temporal parsing...');
+    console.log('\n[6/12] ⏰ Temporal parsing...');
     
     const now = toFranceTime(new Date());
     const { entities, enrichedMessage, parsingMethod } = await parseAndEnrichMessage(message_text, now);
@@ -177,7 +181,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 6. BUILD CONTEXTS
     // ========================================
-    console.log('\n[7/13] 🏗️  Build contexts...');
+    console.log('\n[7/12] 🏗️  Build contexts...');
     
     const userContext = buildUserContext(userInfo);
     const currentDateTime = buildCurrentDateTime(now);
@@ -190,7 +194,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 7. DETERMINE AI MODE
     // ========================================
-    console.log('\n[8/13] 🤖 Determine AI mode...');
+    console.log('\n[8/12] 🤖 Determine AI mode...');
     
     const aiMode = determineAIMode(todayAppointment);
     console.log('[ai] ✅ Mode:', getAIModeDescription(todayAppointment));
@@ -198,7 +202,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 8. BUILD SYSTEM PROMPT
     // ========================================
-    console.log('\n[9/13] 📝 Build system prompt...');
+    console.log('\n[9/12] 📝 Build system prompt...');
     
     let systemPrompt: string;
     let appointmentTool;
@@ -230,7 +234,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 9. CALL OPENAI API
     // ========================================
-    console.log('\n[10/13] 🧠 Call OpenAI...');
+    console.log('\n[10/12] 🧠 Call OpenAI...');
 
     const { response, latencyMs } = await executeOpenAIRequest(
       systemPrompt,
@@ -251,7 +255,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 10. PROCESS RESPONSE (MODE-SPECIFIC)
     // ========================================
-    console.log('\n[11/13] 🔄 Process response...');
+    console.log('\n[11/12] 🔄 Process response...');
     
     const choice = response.choices[0];
     let messageToSend: string;
@@ -262,8 +266,14 @@ Deno.serve(async (request) => {
       // ========================================
       console.log('[waiting] Processing JSON response...');
       
-      const waitingResponse = JSON.parse(choice.message.content);
-      messageToSend = waitingResponse.message;
+      let waitingResponse;
+      try {
+        waitingResponse = JSON.parse(choice.message.content);
+        messageToSend = waitingResponse.message;
+      } catch (parseError) {
+        console.error('[waiting] Failed to parse JSON response:', parseError);
+        messageToSend = "Désolé, une erreur s'est produite. Réessayez ?";
+      }
       
       console.log('[waiting] ✅ Message:', messageToSend.substring(0, 100));
       console.log('[waiting] ✅ Client arrived:', waitingResponse.client_has_arrived);
@@ -302,39 +312,57 @@ Deno.serve(async (request) => {
         console.log('[workflow] 🎯 Function call detected!');
         
         const toolCall = choice.message.tool_calls[0];
-        const appointmentData = JSON.parse(toolCall.function.arguments);
+        let appointmentData;
         
-        console.log('[workflow] Appointment data:', appointmentData);
-        
-        // ========================================
-        // 10a. VALIDATE APPOINTMENT
-        // ========================================
-        console.log('[workflow] Validating appointment...');
-        
-        const dynamicEnums = buildDynamicEnums(userInfo);
-        
-        // Enum validation + duplicate check
-        const validation = await validateAppointmentComplete(
-          appointmentData,
-          dynamicEnums,
-          supabase,
-          conversation_id
-        );
-        
-        if (!validation.isValid) {
-          console.error('[workflow] ❌ Validation failed:', validation.errors);
+        try {
+          appointmentData = JSON.parse(toolCall.function.arguments);
+        } catch (parseError) {
+          console.error('[workflow] ❌ Failed to parse function arguments:', parseError);
+          console.error('[workflow] Raw arguments:', toolCall.function.arguments);
           
-          await logValidationError(
-            supabase, user_id, conversation_id,
-            'appointment_validation',
-            validation.errors
+          await logError(
+            supabase,
+            user_id,
+            conversation_id,
+            `JSON parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}`,
+            `Raw arguments: ${toolCall.function.arguments}${parseError instanceof Error ? '\nStack: ' + parseError.stack : ''}`
           );
           
-          messageToSend = validation.isDuplicate
-            ? "On dirait que ce RDV existe déjà 🤔"
-            : "Erreur de validation. Réessaie ?";
+          messageToSend = "Erreur de traitement. Réessaie ?";
+        }
+        
+        if (appointmentData) {
+          console.log('[workflow] Appointment data:', appointmentData);
+          
+          // ========================================
+          // 10a. VALIDATE APPOINTMENT
+          // ========================================
+          console.log('[workflow] Validating appointment...');
+          
+          const dynamicEnums = buildDynamicEnums(userInfo);
+          
+          // Enum validation + duplicate check
+          const validation = await validateAppointmentComplete(
+            appointmentData,
+            dynamicEnums,
+            supabase,
+            conversation_id
+          );
+          
+          if (!validation.isValid) {
+            console.error('[workflow] ❌ Validation failed:', validation.errors);
             
-        } else {
+            await logValidationError(
+              supabase, user_id, conversation_id,
+              'appointment_validation',
+              validation.errors
+            );
+            
+            messageToSend = validation.isDuplicate
+              ? "On dirait que ce RDV existe déjà 🤔"
+              : "Erreur de validation. Réessaie ?";
+              
+          } else {
           // Time validation (availability + lead time)
           const timeValidation = validateAppointmentTimeDetailed(
             appointmentData.appointment_time,
@@ -406,7 +434,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 11. SEND WHATSAPP MESSAGE
     // ========================================
-    console.log('\n[12/13] 📤 Send WhatsApp message...');
+    console.log('\n[12/12] 📤 Send WhatsApp message...');
     
     await sendWhatsAppMessageWithRetry(supabase, conversation_id, messageToSend);
     
@@ -415,7 +443,7 @@ Deno.serve(async (request) => {
     // ========================================
     // 12. RETURN SUCCESS RESPONSE
     // ========================================
-    console.log('\n[13/13] ✅ Success!');
+    console.log('\n[12/12] ✅ Success!');
     console.log('=== 🎉 Request completed successfully ===\n');
     
     return new Response(
@@ -438,23 +466,24 @@ Deno.serve(async (request) => {
     console.error('Stack:', error instanceof Error ? error.stack : 'No stack trace');
     
     // Try to log error (may fail if user_id/conversation_id not available)
-    try {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+    } catch (loggingError) {
+      console.error('Failed to log error:', loggingError);
+    }
       const errorStack = error instanceof Error ? error.stack : undefined;
       
-      // Extract user_id and conversation_id if available (from request context)
-      const body = await request.json().catch(() => ({}));
+      // Use previously parsed request body, or try to parse if not available
+      const body = requestBody || await request.json().catch(() => ({}));
       
       if (body.conversation_id) {
         const auth = await validateJWT(
           request.headers.get('Authorization'), 
-          Deno.env.get('SUPABASE_JWT_SECRET')
+          env.SUPABASE_JWT_SECRET
         ).catch(() => ({ isValid: false }));
         
         if (auth.isValid && auth.user_id) {
           const supabase = createClient(
-            Deno.env.get('SUPABASE_URL')!,
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+            env.SUPABASE_URL,
+            env.SUPABASE_SERVICE_ROLE_KEY
           );
           
           await logError(

@@ -3,7 +3,7 @@
  * Sends messages via send-whatsapp-message Edge Function
  */
 
-import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
+import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.41.0';
 
 /**
  * Sends a WhatsApp message to a conversation

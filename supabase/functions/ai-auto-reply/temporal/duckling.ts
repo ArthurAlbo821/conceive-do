@@ -18,24 +18,20 @@ import type { TemporalEntity, DucklingResponse } from '../types.ts';
  * 2. Form-urlencoded WITH dims parameter for specificity
  * 
  * @param text - Text to parse for temporal expressions
- * @param referenceTime - Reference time for relative expressions (optional)
  * @returns Array of temporal entities found in the text
  * @throws Error if all request formats fail
  * 
  * @example
- * const entities = await parseDucklingEntities("dans 1h", new Date());
+ * const entities = await parseDucklingEntities("dans 1h");
  * // [{ body: "dans 1h", dim: "time", value: { value: "2025-01-15T15:00:00.000Z" }, ... }]
  */
 export async function parseDucklingEntities(
-  text: string,
-  referenceTime?: Date
+  text: string
 ): Promise<TemporalEntity[]> {
-  const refTime = referenceTime || new Date();
   const ducklingUrl = Deno.env.get('DUCKLING_API_URL') || 
     'https://duckling-production-0c9c.up.railway.app/parse';
 
   console.log('[duckling] Parsing text:', text);
-  console.log('[duckling] Reference time:', refTime.toISOString());
   console.log('[duckling] URL:', ducklingUrl);
 
   try {

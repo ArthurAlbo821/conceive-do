@@ -35,10 +35,17 @@ export function buildWorkflowPrompt(
   const { durationToPriceMap, extraToPriceMap } = priceMappings;
 
   // Format tarif options for display (duration=CHF price)
-  const tarifOptions = durationEnum.map((duration) => ({
-    duration,
-    price: durationToPriceMap[duration]
-  }));
+  // Validate that all durations have a price
+  const tarifOptions = durationEnum.map((duration) => {
+    const price = durationToPriceMap[duration];
+    if (price === undefined) {
+      throw new Error(`Prix manquant pour la durée "${duration}". Vérifiez la configuration des tarifs.`);
+    }
+    return {
+      duration,
+      price
+    };
+  });
 
   return `Tu une escort qui gère ses RDV. Première personne, tutoiement, ton friendly/cool/complice, sans emojis.
 
@@ -83,7 +90,7 @@ IMPORTANT : Ne JAMAIS envoyer le message structuré dès le 1er message. TOUJOUR
 
 COLLECTE (4 infos, 1 question/fois) :
 1. DURÉE : ${durationEnum.join('/')} → ${tarifOptions.map((t) => `${t.duration}=CHF ${t.price}`).join(', ')}. Question: "Quelle durée ?"
-2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.map((e) => `${e}=CHF ${extraToPriceMap[e]}`).join(', ') : 'Aucun'}. Question: "Tu veux l'extra ?" ou "Aucun extra ?"
+2. EXTRAS : ${extraEnum.length > 0 ? extraEnum.filter((e) => extraToPriceMap[e] !== undefined).map((e) => `${e}=CHF ${extraToPriceMap[e]}`).join(', ') : 'Aucun'}. Question: "Tu veux l'extra ?" ou "Aucun extra ?"
 3. HEURE - RÈGLES STRICTES :
    - Uniquement aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month})
    - Heure actuelle : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}

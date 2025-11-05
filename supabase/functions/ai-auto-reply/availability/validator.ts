@@ -9,13 +9,78 @@ import { isTimeInAvailableRanges } from './calculator.ts';
 import type { Availability, Appointment } from '../types.ts';
 
 /**
+ * Parses a datetime string as France timezone and returns a UTC Date object
+ * that corresponds to that France local time.
+ * 
+ * @param dateTimeString - DateTime string in format "YYYY-MM-DDTHH:MM:SS" (France time)
+ * @returns UTC Date object corresponding to that France local time
+ * 
+ * @example
+ * parseFranceDateTime("2025-01-15T14:30:00") 
+ * // Returns UTC Date that represents 14:30 France time (13:30 UTC in winter, 12:30 UTC in summer)
+ */
+function parseFranceDateTime(dateTimeString: string): Date {
+  // The string format is "YYYY-MM-DDTHH:MM:SS" and represents France local time
+  // We need to construct a UTC Date that, when interpreted in Europe/Paris timezone,
+  // gives us the same local time
+  
+  // Parse: Interpret the string as if it were in France timezone
+  // ISO 8601 format with timezone: append +01:00 or +02:00 depending on DST
+  // For simplicity, we can use a temporary approach: parse with Date constructor
+  // and adjust for timezone offset difference
+  
+  // Parse components
+  const [datePart, timePart] = dateTimeString.split('T');
+  const [year, month, day] = datePart.split('-').map(Number);
+  const [hour, minute, second] = timePart.split(':').map(Number);
+  
+  // Create Date in local runtime timezone first
+  const tempDate = new Date(year, month - 1, day, hour, minute, second || 0);
+  
+  // Get the offset difference between runtime timezone and France timezone
+  // Use a reference UTC date to format in both timezones
+  const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, second || 0));
+  
+  // Format this UTC date as France time to see what local time it represents
+  const franceFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+  
+  const franceStr = franceFormatter.format(utcDate);
+  const [fDatePart, fTimePart] = franceStr.split(', ');
+  const [fMonth, fDay, fYear] = fDatePart.split('/').map(Number);
+  const [fHour, fMinute, fSecond] = fTimePart.split(':').map(Number);
+  
+  // Calculate the difference in minutes
+  const targetMinutes = hour * 60 + minute;
+  const actualMinutes = fHour * 60 + fMinute;
+  const diffMinutes = targetMinutes - actualMinutes;
+  
+  // Adjust UTC date by this difference
+  return new Date(utcDate.getTime() + diffMinutes * 60 * 1000);
+}
+
+/**
  * Validates that an appointment time meets minimum lead time requirement
  * 
  * CRITICAL: Server-side validation to prevent appointments too close to current time
  * Client may manipulate data, so we always validate on the server
  * 
+ * IMPORTANT: This function treats times in the past as INVALID.
+ * It does NOT automatically adjust past times to tomorrow. If the appointment
+ * is intended for tomorrow, the appointmentDateTime string must explicitly
+ * contain tomorrow's date.
+ * 
  * @param appointmentDateTime - Appointment date/time string in format "YYYY-MM-DDTHH:MM:SS"
- * @param currentDate - Current date in France timezone
+ *                              interpreted as France timezone (Europe/Paris)
+ * @param currentDate - Current date (UTC Date)
  * @returns Object with isValid and minutesUntil
  * 
  * @example
@@ -31,55 +96,25 @@ export function validateMinimumLeadTime(
   isValid: boolean;
   minutesUntil: number;
 } {
-  // Parse appointment time (already in France timezone format)
-  let appointmentDate = new Date(appointmentDateTime);
+  // Parse appointment time using France timezone-aware utility
+  // This ensures the datetime string is correctly interpreted as France local time
+  const appointmentDate = parseFranceDateTime(appointmentDateTime);
   const now = currentDate;
 
-  // Handle midnight-crossing appointments: if appointment time is in the past, it must be for tomorrow
-  if (appointmentDate < now) {
-    // Appointment time has already passed today, so it must be for tomorrow
-    appointmentDate = new Date(appointmentDate.getTime() + 24 * 60 * 60 * 1000);
-    console.log('[validator] Midnight-crossing appointment detected, adjusted to next day');
-  }
-
+  // Calculate time difference in minutes
   const minutesUntil = (appointmentDate.getTime() - now.getTime()) / (1000 * 60);
 
-  return {
-    isValid: minutesUntil >= APPOINTMENT_CONFIG.MIN_BOOKING_LEAD_TIME_MINUTES,
-    minutesUntil
-  };
-}
-
-/**
- * Validates that an appointment time falls within available ranges
- * 
- * This checks:
- * - Time is within user's availability windows
- * - Time is not occupied by existing appointment
- * - Time meets minimum lead time requirement
- * - Time is for today (not tomorrow or future dates)
- * 
- * @param appointmentTime - Time in HH:MM format
- * @param appointmentDate - Date in YYYY-MM-DD format
- * @param availableRanges - Available ranges string from computeAvailableRanges()
- * @param availabilities - User's availability schedule
- * @param appointments - Existing appointments
- * @param currentDate - Current date in France timezone
- * @returns Object with isValid, reason, and suggestion
- * 
- * @example
- * const validation = validateAppointmentTime(
- *   "14:30", 
- *   "2025-01-15",
- *   availableRanges,
- *   availabilities,
- *   appointments,
- *   now
- * );
- * if (!validation.isValid) {
- *   console.log('Invalid:', validation.reason);
- * }
- */
+  // EXPLICIT VALIDATION: Times in the past are invalid
+  // We do NOT automatically adjust to tomorrow. If the client wants tomorrow,
+  // they must provide tomorrow's date explicitly in appointmentDateTime.
+  if (appointmentDate < now) {
+    console.log('[validator] Appointment time is in the past:', {
+      appointmentDateTime,
+      appointmentDate: appointmentDate.toISOString(),
+      currentDate: now.toISOString(),
+      minutesUntil: minutesUntil.toFixed(2)
+    });
+    
 export function validateAppointmentTime(
   appointmentTime: string,
   appointmentDate: string,
@@ -132,6 +167,83 @@ export function validateAppointmentTime(
     };
   }
 
+  // Check for appointment conflicts
+  const hasConflict = hasAppointmentConflict(
+    appointmentTime,
+    APPOINTMENT_CONFIG.APPOINTMENT_DURATION_MINUTES,
+    appointmentDate,
+    appointments
+  );
+
+  if (hasConflict) {
+    return {
+      isValid: false,
+      reason: 'appointment_conflict',
+      suggestion: `Désolée bébé, ce créneau est déjà pris. Tu peux choisir un autre ?`
+    };
+  }
+
+  return { isValid: true };
+}
+} {
+  // Validate input format for appointmentDate
+  if (!isValidDateFormat(appointmentDate)) {
+    return {
+      isValid: false,
+      reason: 'invalid_format',
+      suggestion: 'Désolée bébé, la date doit être au format YYYY-MM-DD (ex: 2025-01-15).'
+    };
+  }
+
+  // Validate input format for appointmentTime
+  if (!isValidTimeFormat(appointmentTime)) {
+    return {
+      isValid: false,
+      reason: 'invalid_format',
+      suggestion: 'Désolée bébé, l\'heure doit être au format HH:mm en 24h (ex: 14:30).'
+    };
+  }
+
+  const today = toFranceISODate(currentDate);
+
+  // Check if appointment is for today
+  if (appointmentDate !== today) {
+    return {
+      isValid: false,
+      reason: 'appointment_not_today',
+      suggestion: 'Désolée, rendez-vous le jour même uniquement.'
+    };
+  }
+
+  // Build full datetime string for lead time validation
+  const appointmentDateTime = `${appointmentDate}T${appointmentTime}:00`;
+  const leadTimeValidation = validateMinimumLeadTime(appointmentDateTime, currentDate);
+
+  if (!leadTimeValidation.isValid) {
+    return {
+      isValid: false,
+      reason: 'too_close_to_current_time',
+      suggestion: "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+    };
+  }
+
+  // Check if time falls within available ranges
+  const isInRange = isTimeInAvailableRanges(
+    appointmentTime,
+    availableRanges,
+    availabilities,
+    appointments,
+    currentDate
+  );
+
+  if (!isInRange) {
+    return {
+      isValid: false,
+      reason: 'time_not_in_available_ranges',
+      suggestion: `Désolée bébé, je suis dispo ${availableRanges}. Tu peux à quelle heure ?`
+    };
+  }
+
   return { isValid: true };
 }
 
@@ -144,7 +256,7 @@ export function validateAppointmentTime(
  * @param availableRanges - Available ranges string
  * @param availabilities - User's availability schedule
  * @param appointments - Existing appointments
- * @param currentDate - Current date in France timezone
+ * @param currentDate - Current date (UTC Date)
  * @returns Validation result with detailed error info
  */
 export function validateAppointmentTimeDetailed(
@@ -161,6 +273,25 @@ export function validateAppointmentTimeDetailed(
   userMessage?: string;
   minutesUntil?: number;
 } {
+  // Validation 0: Check input format validity
+  if (!isValidDateFormat(appointmentDate)) {
+    return {
+      isValid: false,
+      errorCode: 'INVALID_DATE_FORMAT',
+      errorMessage: `Invalid date format: ${appointmentDate}. Expected YYYY-MM-DD`,
+      userMessage: 'Désolée bébé, le format de la date est incorrect. Utilise YYYY-MM-DD.'
+    };
+  }
+
+  if (!isValidTimeFormat(appointmentTime)) {
+    return {
+      isValid: false,
+      errorCode: 'INVALID_TIME_FORMAT',
+      errorMessage: `Invalid time format: ${appointmentTime}. Expected HH:MM`,
+      userMessage: 'Désolée bébé, le format de l\'heure est incorrect. Utilise HH:MM.'
+    };
+  }
+
   const today = toFranceISODate(currentDate);
 
   // Validation 1: Check if date is today
@@ -169,7 +300,7 @@ export function validateAppointmentTimeDetailed(
       isValid: false,
       errorCode: 'NOT_TODAY',
       errorMessage: `Appointment date ${appointmentDate} is not today ${today}`,
-      userMessage: 'Désolée, que jour même.'
+      userMessage: 'Désolée, uniquement pour aujourd\'hui.'
     };
   }
 
@@ -187,7 +318,24 @@ export function validateAppointmentTimeDetailed(
     };
   }
 
-  // Validation 3: Check if time is in available ranges
+  // Validation 3: Check for appointment conflicts
+  const hasConflict = hasAppointmentConflict(
+    appointmentTime,
+    APPOINTMENT_CONFIG.APPOINTMENT_DURATION_MINUTES,
+    appointmentDate,
+    appointments
+  );
+
+  if (hasConflict) {
+    return {
+      isValid: false,
+      errorCode: 'CONFLICT',
+      errorMessage: `Appointment at ${appointmentTime} conflicts with an existing appointment`,
+      userMessage: `Désolée bébé, j'ai déjà un rendez-vous à cette heure. Je suis dispo ${availableRanges}. Tu peux à quelle heure ?`
+    };
+  }
+
+  // Validation 4: Check if time is in available ranges
   const isInRange = isTimeInAvailableRanges(
     appointmentTime,
     availableRanges,
