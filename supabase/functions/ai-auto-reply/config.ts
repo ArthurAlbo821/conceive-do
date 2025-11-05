@@ -1,6 +1,25 @@
 /**
  * Configuration centralisée pour ai-auto-reply
  * Toutes les constantes magiques extraites ici pour faciliter la maintenance
+ * 
+ * VARIABLES D'ENVIRONNEMENT REQUISES:
+ * ===================================
+ * 
+ * Pour la production (à configurer dans Supabase Dashboard > Edge Functions > Secrets):
+ * 
+ * - SUPABASE_ENV: 'production' ou 'prod' (détecte l'environnement de production)
+ *   Alternative: ENVIRONMENT='production'
+ *   ⚠️ IMPORTANT: Contrairement à NODE_ENV (convention Node.js), SUPABASE_ENV est
+ *      la variable recommandée pour les Supabase Edge Functions (Deno runtime)
+ * 
+ * - ALLOWED_ORIGINS: Liste des origines CORS autorisées, séparées par des virgules
+ *   Exemple: 'https://mon-app.vercel.app,https://www.mon-domaine.com'
+ *   Alternative: ALLOWED_ORIGIN (pour une seule origine)
+ *   ⚠️ OBLIGATOIRE en production - l'application lancera une erreur si non configuré
+ * 
+ * Pour le développement:
+ * - Si SUPABASE_ENV n'est pas défini ou != 'production', le système utilise
+ *   automatiquement localhost:5173 et localhost:3000 comme fallback
  */
 
 // ============================================================================
@@ -15,6 +34,11 @@
  * @returns Les en-têtes CORS appropriés
  */
 export function getCorsHeaders(requestOrigin?: string | null): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+  };
+
   const allowedOriginsEnv = Deno.env.get('ALLOWED_ORIGINS') || Deno.env.get('ALLOWED_ORIGIN') || '';
   
   // Parse les origines autorisées (séparées par des virgules)
@@ -23,23 +47,29 @@ export function getCorsHeaders(requestOrigin?: string | null): Record<string, st
     .map(origin => origin.trim())
     .filter(origin => origin.length > 0);
   
+  // Détection de l'environnement selon les meilleures pratiques Supabase
+  // Utilise SUPABASE_ENV au lieu de NODE_ENV (plus approprié pour Deno/Supabase Edge Functions)
+  const supabaseEnv = Deno.env.get('SUPABASE_ENV') || Deno.env.get('ENVIRONMENT') || 'development';
+  const isProduction = supabaseEnv === 'production' || supabaseEnv === 'prod';
+  
   // Vérification stricte en production : les origines CORS doivent être explicitement configurées
-  const nodeEnv = Deno.env.get('NODE_ENV');
   if (allowedOrigins.length === 0) {
-    if (nodeEnv === 'production') {
+    if (isProduction) {
       throw new Error(
         'ALLOWED_ORIGINS must be explicitly set in production environment. ' +
-        'Configure ALLOWED_ORIGINS environment variable with comma-separated allowed origins.'
+        'Configure ALLOWED_ORIGINS environment variable with comma-separated allowed origins. ' +
+        'Current SUPABASE_ENV: ' + supabaseEnv
       );
     }
     // Fallback pour le développement local uniquement
+    console.warn(
+      '⚠️ ALLOWED_ORIGINS not configured. Using localhost fallback. ' +
+      'Set SUPABASE_ENV=production and ALLOWED_ORIGINS in production!'
+    );
     allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
   }
   
-  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
-    headers['Access-Control-Allow-Origin'] = requestOrigin;
-    headers['Access-Control-Allow-Credentials'] = 'true';
-  }
+  // Vérifier et appliquer l'origine de la requête
   if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
     headers['Access-Control-Allow-Origin'] = requestOrigin;
     headers['Access-Control-Allow-Credentials'] = 'true';

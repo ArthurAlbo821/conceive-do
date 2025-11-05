@@ -86,11 +86,11 @@ export function computeAvailableRanges(
     for (let m = availStartMinute; m <= availEndMinute; m++) {
       const actualMinute = m % (24 * 60);
       // Consider slots as "past" if they're before current time + lead time
-      // For midnight crossing: slots after 1440 are tomorrow and compared against normalized minimum
+      // Detect if minimumAllowedMinute crosses midnight (>= 1440)
       const normalizedMinimum = minimumAllowedMinute % (24 * 60);
-      const isPast = m < 1440 
-        ? m < minimumAllowedMinute  // Today's slots: direct comparison
-        : actualMinute < normalizedMinimum;  // Tomorrow's slots: compare against normalized minimum
+      const isPast = minimumAllowedMinute >= 1440
+        ? (m < 1440 ? true : actualMinute < normalizedMinimum)  // minimumAllowedMinute crosses midnight
+        : m < minimumAllowedMinute;  // minimumAllowedMinute is today: direct comparison
       const isOccupied = occupiedMinutes.has(actualMinute);
 
       if (!isPast && !isOccupied) {
