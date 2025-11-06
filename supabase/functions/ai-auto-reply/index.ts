@@ -108,35 +108,47 @@ Deno.serve(async (request) => {
 
     // Detect if this is an internal call from another Edge Function (service role key)
     // or an external call from the frontend (user JWT)
-    if (authHeader && authHeader.includes(env.SUPABASE_SERVICE_ROLE_KEY.substring(0, 20))) {
-      // Internal call: extract user_id from request body
-      console.log('[auth] 🔧 Internal call detected (service role key)');
+    if (authHeader) {
+      // Extract token by removing "Bearer " prefix if present
+      const token = authHeader.startsWith('Bearer ') 
+        ? authHeader.substring(7).trim() 
+        : authHeader.trim();
+      
+      // Check if this is an internal call with exact service role key match
+      if (token === env.SUPABASE_SERVICE_ROLE_KEY) {
+        // Internal call: extract user_id from request body
+        console.log('[auth] 🔧 Internal call detected (service role key)');
 
-      requestBody = await request.json();
-      user_id = requestBody.user_id;
+        requestBody = await request.json();
+        user_id = requestBody.user_id;
 
-      if (!user_id) {
-        console.error('[auth] Internal call missing user_id in body');
-        return new Response(
-          JSON.stringify({ error: 'Missing user_id in request body for internal call' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        if (!user_id) {
+          console.error('[auth] Internal call missing user_id in body');
+          return new Response(
+            JSON.stringify({ error: 'Missing user_id in request body for internal call' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        console.log('[auth] ✅ Internal call authenticated for user:', user_id);
+      } else {
+        // External call: validate JWT
+        console.log('[auth] 🔑 External call detected, validating JWT...');
+
+        const auth = await validateJWT(authHeader, env.JWT_SECRET);
+
+        if (!auth.isValid) {
+          console.error('[auth] Authentication failed:', auth.error);
+          return authErrorResponse(auth.error!, corsHeaders);
+        }
+
+        user_id = auth.user_id!;
+        console.log('[auth] ✅ JWT authenticated for user:', user_id);
       }
-
-      console.log('[auth] ✅ Internal call authenticated for user:', user_id);
     } else {
-      // External call: validate JWT as usual
-      console.log('[auth] 🔑 External call detected, validating JWT...');
-
-      const auth = await validateJWT(authHeader, env.JWT_SECRET);
-
-      if (!auth.isValid) {
-        console.error('[auth] Authentication failed:', auth.error);
-        return authErrorResponse(auth.error!, corsHeaders);
-      }
-
-      user_id = auth.user_id!;
-      console.log('[auth] ✅ JWT authenticated for user:', user_id);
+      // No authorization header provided
+      console.error('[auth] Missing Authorization header');
+      return authErrorResponse('Missing Authorization header', corsHeaders);
     }
 
     // ========================================

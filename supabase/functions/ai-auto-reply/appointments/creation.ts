@@ -59,7 +59,7 @@ export function parseDurationToMinutes(duration: string): number {
   }
 
   const hourMatch = duration.match(/(\d+)h/);
-  const minMatch = duration.match(/(\d+)min/);
+  const minMatch = duration.match(/(\d+)(?!h)(?:min)?/);
 
   if (!hourMatch && !minMatch) {
     throw new Error(`Unable to parse duration: ${duration}. Expected formats: "30min", "1h", "1h30"`);
