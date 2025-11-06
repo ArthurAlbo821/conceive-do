@@ -38,7 +38,7 @@ import { parseAndEnrichMessage } from './temporal/parser.ts';
 
 // Data
 import { fetchAllUserData } from './data/user.ts';
-import { fetchAllConversationData } from './data/conversation.ts';
+import { fetchAllConversationData, getConversationContactPhone } from './data/conversation.ts';
 import { buildUserContext, buildCurrentDateTime, formatAvailabilitiesForPrompt } from './data/context.ts';
 
 // Availability
@@ -52,10 +52,10 @@ import { buildWorkflowPrompt } from './ai/prompts/workflow.ts';
 import { executeOpenAIRequest } from './ai/openai.ts';
 
 // Appointment
-import { buildAppointmentTool } from './appointment/tool.ts';
-import { validateAppointmentComplete } from './appointment/validation.ts';
-import { createAppointment } from './appointment/creation.ts';
-import { buildConfirmationMessage } from './appointment/confirmation.ts';
+import { buildAppointmentTool } from './appointments/tool.ts';
+import { validateAppointmentComplete } from './appointments/validation.ts';
+import { createAppointment } from './appointments/creation.ts';
+import { buildConfirmationMessage } from './appointments/confirmation.ts';
 
 // Messaging
 import { sendWhatsAppMessageWithRetry } from './messaging/whatsapp.ts';
@@ -103,22 +103,52 @@ Deno.serve(async (request) => {
     // ========================================
     console.log('\n[1/12] 🔐 Authentication...');
 
-    const auth = await validateJWT(request.headers.get('Authorization'), env.SUPABASE_JWT_SECRET);
+    const authHeader = request.headers.get('Authorization');
+    let user_id: string;
 
-    if (!auth.isValid) {
-      console.error('[auth] Authentication failed:', auth.error);
-      return authErrorResponse(auth.error!, corsHeaders);
+    // Detect if this is an internal call from another Edge Function (service role key)
+    // or an external call from the frontend (user JWT)
+    if (authHeader && authHeader.includes(env.SUPABASE_SERVICE_ROLE_KEY.substring(0, 20))) {
+      // Internal call: extract user_id from request body
+      console.log('[auth] 🔧 Internal call detected (service role key)');
+
+      requestBody = await request.json();
+      user_id = requestBody.user_id;
+
+      if (!user_id) {
+        console.error('[auth] Internal call missing user_id in body');
+        return new Response(
+          JSON.stringify({ error: 'Missing user_id in request body for internal call' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      console.log('[auth] ✅ Internal call authenticated for user:', user_id);
+    } else {
+      // External call: validate JWT as usual
+      console.log('[auth] 🔑 External call detected, validating JWT...');
+
+      const auth = await validateJWT(authHeader, env.JWT_SECRET);
+
+      if (!auth.isValid) {
+        console.error('[auth] Authentication failed:', auth.error);
+        return authErrorResponse(auth.error!, corsHeaders);
+      }
+
+      user_id = auth.user_id!;
+      console.log('[auth] ✅ JWT authenticated for user:', user_id);
     }
-
-    const user_id = auth.user_id!;
-    console.log('[auth] ✅ Authenticated as user:', user_id);
 
     // ========================================
     // 2. PARSE REQUEST BODY
     // ========================================
     console.log('\n[2/12] 📦 Parse request body...');
-    
-    requestBody = await request.json();
+
+    // If not already parsed (external call), parse now
+    if (!requestBody) {
+      requestBody = await request.json();
+    }
+
     const { conversation_id, message_text } = requestBody;
     
     if (!conversation_id || !message_text) {
@@ -448,7 +478,8 @@ Deno.serve(async (request) => {
             console.log('[workflow] ✅ Confirmation message built');
           }
         }
-        
+        }
+
       } else {
         // No function call - regular message
         messageToSend = choice.message.content || "Hmm ?";
@@ -460,9 +491,21 @@ Deno.serve(async (request) => {
     // 11. SEND WHATSAPP MESSAGE
     // ========================================
     console.log('\n[12/12] 📤 Send WhatsApp message...');
-    
-    await sendWhatsAppMessageWithRetry(supabase, conversation_id, messageToSend);
-    
+
+    // Get conversation contact phone for security validation
+    const conversationContact = await getConversationContactPhone(supabase, conversation_id);
+    if (!conversationContact) {
+      throw new Error('Conversation not found');
+    }
+
+    await sendWhatsAppMessageWithRetry(
+      supabase,
+      conversation_id,
+      messageToSend,
+      user_id,
+      conversationContact.contact_phone
+    );
+
     console.log('[whatsapp] ✅ Message sent');
 
     // ========================================
@@ -500,8 +543,8 @@ Deno.serve(async (request) => {
       
       if (body.conversation_id) {
         const auth = await validateJWT(
-          request.headers.get('Authorization'), 
-          env.SUPABASE_JWT_SECRET
+          request.headers.get('Authorization'),
+          env.JWT_SECRET
         ).catch(() => ({ isValid: false }));
         
         if (auth.isValid && auth.user_id) {

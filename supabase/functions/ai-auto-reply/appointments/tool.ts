@@ -33,6 +33,7 @@ import type { OpenAITool, DynamicEnums } from '../types.ts';
  * } catch (error) {
  *   console.error('Cannot create appointment tool:', error.message);
  * }
+ */
 export function buildAppointmentTool(dynamicEnums: DynamicEnums): OpenAITool {
   const { durationEnum, extraEnum } = dynamicEnums;
 

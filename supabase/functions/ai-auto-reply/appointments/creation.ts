@@ -40,34 +40,35 @@ export function calculateEndTime(startTime: string, durationMinutes: number): st
   
   return `${endHours.toString().padStart(2, '0')}:${endMins.toString().padStart(2, '0')}`;
 }
+
+/**
+ * Parses duration string to minutes
+ *
+ * @param duration - Duration string (e.g., "30min", "1h", "1h30")
+ * @returns Number of minutes
+ * @throws Error if duration format is invalid
+ *
+ * @example
+ * parseDurationToMinutes("30min");  // 30
+ * parseDurationToMinutes("1h");     // 60
+ * parseDurationToMinutes("1h30");  // 90
+ */
 export function parseDurationToMinutes(duration: string): number {
   if (!duration || typeof duration !== 'string') {
     throw new Error(`Invalid duration: ${duration}. Must be a non-empty string.`);
   }
-  
+
   const hourMatch = duration.match(/(\d+)h/);
   const minMatch = duration.match(/(\d+)min/);
-  
+
   if (!hourMatch && !minMatch) {
     throw new Error(`Unable to parse duration: ${duration}. Expected formats: "30min", "1h", "1h30"`);
   }
-  
+
   let minutes = 0;
   if (hourMatch) minutes += parseInt(hourMatch[1]) * 60;
   if (minMatch) minutes += parseInt(minMatch[1]);
-  
-  return minutes;
-}
- * parseDurationToMinutes("1h30");  // 90
- */
-export function parseDurationToMinutes(duration: string): number {
-  const hourMatch = duration.match(/(\d+)h/);
-  const minMatch = duration.match(/(\d+)min/);
-  
-  let minutes = 0;
-  if (hourMatch) minutes += parseInt(hourMatch[1]) * 60;
-  if (minMatch) minutes += parseInt(minMatch[1]);
-  
+
   return minutes;
 }
 
@@ -131,13 +132,44 @@ export function calculateTotalPrice(
 
 /**
  * Determines service name based on selected prestations and extras
- * 
+ *
  * @param userInfo - User information with prestations
  * @param selectedExtras - Selected extras
  * @returns Service name string
- * 
+ *
  * @example
  * determineServiceName(userInfo, []); // "Toutes prestations"
+ */
+export function determineServiceName(
+  userInfo: UserInformation,
+  selectedExtras: string[]
+): string {
+  const actualExtras = selectedExtras.filter(e => e !== 'aucun');
+
+  if (actualExtras.length > 0) {
+    return `Toutes prestations + ${actualExtras.join(' + ')}`;
+  }
+
+  return 'Toutes prestations incluses';
+}
+
+/**
+ * Creates an appointment in the database
+ *
+ * This function:
+ * 1. Validates required fields
+ * 2. Calculates duration, end time, and total price
+ * 3. Creates the appointment record
+ *
+ * @param supabase - Supabase client
+ * @param appointmentData - Appointment data from AI function call
+ * @param conversationId - Conversation ID
+ * @param userId - User ID
+ * @param userInfo - User information
+ * @param priceMappings - Price mappings
+ * @returns Created appointment object
+ * @throws Error if required fields are missing or creation fails
+ */
 export async function createAppointment(
   supabase: SupabaseClient,
   appointmentData: AppointmentData,

@@ -3,7 +3,7 @@
  * Validates all required environment variables at startup with clear error messages
  */
 
-import { z } from 'zod';
+import { z } from 'npm:zod@3.22.4';
 
 /**
  * Environment variable schema
@@ -21,20 +21,16 @@ const envSchema = z.object({
     .min(1, 'SUPABASE_SERVICE_ROLE_KEY is required')
     .startsWith('ey', 'SUPABASE_SERVICE_ROLE_KEY must be a valid JWT token (starts with "ey")'),
 
-  SUPABASE_JWT_SECRET: z
+  JWT_SECRET: z
     .string()
-    .min(32, 'SUPABASE_JWT_SECRET must be at least 32 characters long')
-    .min(1, 'SUPABASE_JWT_SECRET is required'),
+    .min(32, 'JWT_SECRET must be at least 32 characters long')
+    .min(1, 'JWT_SECRET is required'),
 
   // OpenAI configuration
   OPENAI_API_KEY: z
     .string()
     .min(1, 'OPENAI_API_KEY is required')
-    .startsWith('sk-', 'OPENAI_API_KEY must start with "sk-"')
-    .refine(
-      (key) => !key.startsWith('sk-proj-'),
-      'OPENAI_API_KEY: Project-scoped keys (sk-proj-) are not supported. Please use a standard secret key (sk-...)'
-    ),
+    .startsWith('sk-', 'OPENAI_API_KEY must start with "sk-"'),
 
   // Optional: Duckling API for temporal parsing
   DUCKLING_API_URL: z
@@ -66,7 +62,7 @@ export function validateEnv(): Env {
     const env = envSchema.parse({
       SUPABASE_URL: Deno.env.get('SUPABASE_URL'),
       SUPABASE_SERVICE_ROLE_KEY: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
-      SUPABASE_JWT_SECRET: Deno.env.get('SUPABASE_JWT_SECRET'),
+      JWT_SECRET: Deno.env.get('JWT_SECRET'),
       OPENAI_API_KEY: Deno.env.get('OPENAI_API_KEY'),
       DUCKLING_API_URL: Deno.env.get('DUCKLING_API_URL'),
     });
@@ -86,13 +82,9 @@ export function validateEnv(): Env {
 
       console.error('');
       console.error('[env] 💡 Please check your environment variables and try again.');
-      console.error('[env] 📝 Required variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, OPENAI_API_KEY');
+      console.error('[env] 📝 Required variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET, OPENAI_API_KEY');
       console.error('[env] 📝 Optional variables: DUCKLING_API_URL');
 
-      console.error('[env] 💡 Please check your environment variables and try again.');
-      console.error('[env] 📝 Required variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET, OPENAI_API_KEY');
-      console.error('[env] 📝 Optional variables: DUCKLING_API_URL');
-      
       // Throw error to let caller handle it
       throw new Error('Environment variable validation failed. See console output above for details.');
     }

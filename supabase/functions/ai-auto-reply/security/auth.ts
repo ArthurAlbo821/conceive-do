@@ -16,7 +16,7 @@ import * as jose from 'https://deno.land/x/jose@v5.9.6/index.ts';
  * @returns Object with isValid flag and user_id if valid
  * 
  * @example
- * const auth = await validateJWT(authHeader, Deno.env.get('SUPABASE_JWT_SECRET'));
+ * const auth = await validateJWT(authHeader, Deno.env.get('JWT_SECRET'));
  * if (!auth.isValid) {
  *   return new Response('Unauthorized', { status: 401 });
  * }
@@ -38,7 +38,7 @@ export async function validateJWT(
 
   // Check if JWT secret is configured
   if (!jwtSecret) {
-    console.error('[auth] SUPABASE_JWT_SECRET not configured');
+    console.error('[auth] JWT_SECRET not configured');
     return { isValid: false, error: 'JWT secret not configured' };
   }
 

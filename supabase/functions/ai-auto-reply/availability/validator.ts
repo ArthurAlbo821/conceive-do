@@ -114,7 +114,43 @@ export function validateMinimumLeadTime(
       currentDate: now.toISOString(),
       minutesUntil: minutesUntil.toFixed(2)
     });
-    
+
+    return {
+      isValid: false,
+      minutesUntil
+    };
+  }
+
+  // Check if time meets minimum lead time requirement
+  const isValid = minutesUntil >= APPOINTMENT_CONFIG.MIN_BOOKING_LEAD_TIME_MINUTES;
+
+  console.log('[validator] Lead time validation:', {
+    appointmentDateTime,
+    minutesUntil: minutesUntil.toFixed(2),
+    minimumRequired: APPOINTMENT_CONFIG.MIN_BOOKING_LEAD_TIME_MINUTES,
+    isValid
+  });
+
+  return {
+    isValid,
+    minutesUntil
+  };
+}
+
+/**
+ * Validates appointment time with all checks
+ *
+ * CRITICAL: Server-side validation for appointment requests
+ * Checks: format, today only, lead time, availability, conflicts
+ *
+ * @param appointmentTime - Time in HH:MM format
+ * @param appointmentDate - Date in YYYY-MM-DD format
+ * @param availableRanges - Available ranges string
+ * @param availabilities - User's availability schedule
+ * @param appointments - Existing appointments
+ * @param currentDate - Current date (UTC Date)
+ * @returns Validation result with isValid, reason, suggestion
+ */
 export function validateAppointmentTime(
   appointmentTime: string,
   appointmentDate: string,
@@ -126,65 +162,6 @@ export function validateAppointmentTime(
   isValid: boolean;
   reason?: string;
   suggestion?: string;
-} {
-  const today = toFranceISODate(currentDate);
-
-  // Check if appointment is for today
-  if (appointmentDate !== today) {
-    return {
-      isValid: false,
-      reason: 'appointment_not_today',
-      suggestion: 'Désolée, que jour même.'
-    };
-  }
-
-  // Build full datetime string for lead time validation
-  const appointmentDateTime = `${appointmentDate}T${appointmentTime}:00`;
-  const leadTimeValidation = validateMinimumLeadTime(appointmentDateTime, currentDate);
-
-  if (!leadTimeValidation.isValid) {
-    return {
-      isValid: false,
-      reason: 'too_close_to_current_time',
-      suggestion: "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
-    };
-  }
-
-  // Check if time falls within available ranges
-  const isInRange = isTimeInAvailableRanges(
-    appointmentTime,
-    availableRanges,
-    availabilities,
-    appointments,
-    currentDate
-  );
-
-  if (!isInRange) {
-    return {
-      isValid: false,
-      reason: 'time_not_in_available_ranges',
-      suggestion: `Désolée bébé, je suis dispo ${availableRanges}. Tu peux à quelle heure ?`
-    };
-  }
-
-  // Check for appointment conflicts
-  const hasConflict = hasAppointmentConflict(
-    appointmentTime,
-    APPOINTMENT_CONFIG.APPOINTMENT_DURATION_MINUTES,
-    appointmentDate,
-    appointments
-  );
-
-  if (hasConflict) {
-    return {
-      isValid: false,
-      reason: 'appointment_conflict',
-      suggestion: `Désolée bébé, ce créneau est déjà pris. Tu peux choisir un autre ?`
-    };
-  }
-
-  return { isValid: true };
-}
 } {
   // Validate input format for appointmentDate
   if (!isValidDateFormat(appointmentDate)) {

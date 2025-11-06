@@ -149,7 +149,6 @@ export function buildOccupiedMinutesSet(appointments: Appointment[]): Set<number
     for (let m = startMinute; m < endMinute; m++) {
       occupiedMinutes.add(m % (24 * 60));
     }
-    }
   }
 
   return occupiedMinutes;

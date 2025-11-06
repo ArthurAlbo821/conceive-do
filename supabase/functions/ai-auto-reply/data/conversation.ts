@@ -88,7 +88,6 @@ export async function checkTodayAppointment(
     console.error('[data] Error checking today appointment:', error);
     throw new Error(`Failed to check today's appointment: ${error.message}`);
   }
-  }
 
   if (data) {
     console.log('[data] Found confirmed appointment TODAY at', data.start_time);
@@ -125,7 +124,6 @@ export async function getConversationContactPhone(
   if (error) {
     console.error('[data] Error fetching conversation:', error);
     throw new Error(`Failed to fetch conversation: ${error.message}`);
-  }
   }
 
   return data as { contact_phone: string };

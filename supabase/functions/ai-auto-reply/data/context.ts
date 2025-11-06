@@ -40,9 +40,8 @@ export function buildUserContext(userInfo: UserInformation): UserContext {
 
   // Format taboos (array of objects or strings)
   const taboos = Array.isArray(userInfo.taboos) && userInfo.taboos.length > 0
-    const taboos = Array.isArray(userInfo.taboos) && userInfo.taboos.length > 0
-      ? userInfo.taboos.map((t) => (typeof t === 'object' ? (t.name || 'Sans nom') : t)).join(', ')
-      : 'Aucun';
+    ? userInfo.taboos.map((t) => (typeof t === 'object' ? (t.name || 'Sans nom') : t)).join(', ')
+    : 'Aucun';
 
   // Format tarifs (array of objects with duration and price)
   const tarifs = Array.isArray(userInfo.tarifs)
@@ -137,10 +136,6 @@ export function formatAvailabilitiesForPrompt(
   return availabilities
     .map((a) => `- ${DAYS_FR[a.day_of_week] || 'Jour invalide'} : ${a.start_time} - ${a.end_time}`)
     .join('\n');
-}
-  return availabilities
-    .map((a) => `${DAYS_FR[a.day_of_week]} : ${a.start_time} - ${a.end_time}`)
-    .join('\n- ');
 }
 
 /**

@@ -4,7 +4,7 @@
  * AI's role: Make client wait + detect arrival
  */
 
-import { buildAppointmentStatusContext } from './context.ts';
+import { buildAppointmentStatusContext } from './context_ai.ts';
 import type { Appointment, CurrentDateTime } from '../../types.ts';
 
 /**
