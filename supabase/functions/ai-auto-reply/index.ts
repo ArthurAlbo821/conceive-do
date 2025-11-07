@@ -35,6 +35,7 @@ import { buildPriceMappings } from './utils/pricing.ts';
 
 // Temporal
 import { parseAndEnrichMessage } from './temporal/parser.ts';
+import { analyzeConversationContext, shouldSkipEnrichment } from './temporal/context-analyzer.ts';
 
 // Data
 import { fetchAllUserData } from './data/user.ts';
@@ -226,7 +227,61 @@ Deno.serve(async (request) => {
     console.log('\n[6/12] ⏰ Temporal parsing...');
     
     const now = toFranceTime(new Date());
-    const { entities, enrichedMessage, parsingMethod } = await parseAndEnrichMessage(message_text, now);
+    
+    // ========================================
+    // 5a. ANALYZE CONVERSATION CONTEXT
+    // ========================================
+    console.log('[context-analysis] 🔍 Analyzing conversation context...');
+    
+    const contextAnalysis = await analyzeConversationContext(
+      messages,
+      message_text,
+      env.OPENAI_API_KEY
+    );
+    
+    console.log('[context-analysis] ✅ Result:', contextAnalysis.contextType);
+    console.log('[context-analysis] Confidence:', contextAnalysis.confidence);
+    console.log('[context-analysis] Reasoning:', contextAnalysis.reasoning);
+    console.log('[context-analysis] Latency:', contextAnalysis.latencyMs, 'ms');
+    
+    // ========================================
+    // 5b. CONDITIONAL TEMPORAL PARSING
+    // ========================================
+    let entities: any[] = [];
+    let enrichedMessage: string;
+    let parsingMethod: string;
+    
+    if (shouldSkipEnrichment(contextAnalysis.contextType)) {
+      // DURATION context detected - skip enrichment
+      console.log('[temporal] ⏭️  SKIPPING enrichment - DURATION context detected');
+      console.log('[temporal] Message "' + message_text + '" is a duration, not a time');
+      
+      enrichedMessage = message_text;
+      entities = [];
+      parsingMethod = 'skipped_duration_context';
+      
+    } else {
+      // TIME or UNKNOWN context - proceed with normal parsing
+      console.log('[temporal] ✅ Proceeding with temporal parsing - context:', contextAnalysis.contextType);
+      
+      const parseResult = await parseAndEnrichMessage(message_text, now);
+      entities = parseResult.entities;
+      enrichedMessage = parseResult.enrichedMessage;
+      parsingMethod = parseResult.parsingMethod;
+      
+      console.log('\n=== 🔍 DEBUG TEMPORAL PARSING ===');
+      console.log('📩 Message original:', message_text);
+      console.log('🔮 Entities trouvées:', entities.length);
+      entities.forEach((e, i) => {
+        console.log(`  Entity ${i + 1}:`, {
+          body: e.body,
+          dim: e.dim,
+          value: e.value
+        });
+      });
+      console.log('✨ Message enrichi:', enrichedMessage);
+      console.log('=================================\n');
+    }
     
     console.log('[temporal] ✅', entities.length, 'entities found via', parsingMethod);
     
@@ -302,6 +357,13 @@ Deno.serve(async (request) => {
     // 9. CALL OPENAI API
     // ========================================
     console.log('\n[10/12] 🧠 Call OpenAI...');
+    console.log('\n=== 🧠 DEBUG OPENAI CALL ===');
+    console.log('📝 Historique envoyé:', messages.length, 'messages');
+    messages.forEach((msg, i) => {
+      console.log(`  ${i + 1}. [${msg.direction}]:`, msg.content.substring(0, 100) + '...');
+    });
+    console.log('📩 Message actuel (enrichi):', enrichedMessage);
+    console.log('============================\n');
 
     const { response, latencyMs } = await executeOpenAIRequest(
       systemPrompt,
