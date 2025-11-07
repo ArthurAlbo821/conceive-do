@@ -37,11 +37,12 @@ export async function parseDucklingEntities(
   try {
     // Define multiple request format strategies
     const requestFormats = [
-      // Format 1: Form-urlencoded WITHOUT reftime (works with rasa/duckling)
+      // Format 1: Form-urlencoded WITH timezone (Europe/Paris)
       async () => {
         const params = new URLSearchParams({
           text,
-          locale: TEMPORAL_CONFIG.LOCALE
+          locale: TEMPORAL_CONFIG.LOCALE,
+          tz: 'Europe/Paris'  // CRITICAL: Set correct timezone
           // Note: reftime causes 502 on rasa/duckling Docker image
         });
 
@@ -55,12 +56,13 @@ export async function parseDucklingEntities(
         return response;
       },
 
-      // Format 2: With dims parameter for specificity
+      // Format 2: With dims parameter for specificity + timezone
       async () => {
         const params = new URLSearchParams({
           text,
           locale: TEMPORAL_CONFIG.LOCALE,
-          dims: 'time'
+          dims: 'time',
+          tz: 'Europe/Paris'  // CRITICAL: Set correct timezone
         });
 
         const response = await fetch(ducklingUrl, {

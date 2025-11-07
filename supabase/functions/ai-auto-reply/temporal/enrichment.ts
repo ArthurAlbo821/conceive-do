@@ -96,6 +96,7 @@ export function enrichMessageWithTemporal(
       if (parsedValue) {
         const date = new Date(parsedValue);
         const formatted = date.toLocaleString('fr-FR', {
+          timeZone: 'Europe/Paris',  // CRITICAL: Format in France timezone
           weekday: 'long',
           year: 'numeric',
           month: 'long',
@@ -161,6 +162,7 @@ export function formatTemporalEntity(entity: TemporalEntity): string {
   }
   
   const formatted = date.toLocaleString('fr-FR', {
+    timeZone: 'Europe/Paris',  // CRITICAL: Format in France timezone
     weekday: 'short',
     month: 'short',
     day: 'numeric',

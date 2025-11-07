@@ -138,7 +138,7 @@ export async function analyzeConversationContext(
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.0,  // Deterministic
-        max_tokens: 50,    // Just need one word + brief reasoning
+        max_tokens: 150,   // Enough space for complete JSON response
         response_format: { type: 'json_object' }  // Structured output
       })
     });
@@ -231,6 +231,24 @@ export async function analyzeConversationContext(
       const latencyMs = Date.now() - startTime;
       console.error('[context-analyzer] ❌ Failed to parse content JSON:', contentParseError);
       console.log('[context-analyzer] Content was:', content.substring(0, 200));
+      
+      // Try to extract context_type using regex as fallback
+      console.log('[context-analyzer] Attempting to extract context_type from incomplete JSON...');
+      const match = content.match(/"context_type"\s*:\s*"(DURATION|TIME|UNKNOWN)"/);
+      
+      if (match && match[1]) {
+        const extractedType = match[1] as ContextType;
+        console.log('[context-analyzer] ✅ Extracted context_type:', extractedType);
+        console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+        return {
+          contextType: extractedType,
+          confidence: 'medium',
+          reasoning: 'Extracted from incomplete JSON response',
+          latencyMs
+        };
+      }
+      
+      console.log('[context-analyzer] ❌ Could not extract context_type from content');
       console.log('[context-analyzer] Latency:', latencyMs, 'ms');
       return {
         contextType: 'UNKNOWN',
