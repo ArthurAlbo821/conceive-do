@@ -200,7 +200,7 @@ export function validateAppointmentTime(
     return {
       isValid: false,
       reason: 'too_close_to_current_time',
-      suggestion: "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘"
+      suggestion: "Désolée bébé, j'ai besoin d'au moins 15min pour me préparer 😘"
     };
   }
 
@@ -290,7 +290,7 @@ export function validateAppointmentTimeDetailed(
       isValid: false,
       errorCode: 'TOO_CLOSE',
       errorMessage: `Appointment is only ${leadTimeValidation.minutesUntil.toFixed(0)} minutes away, minimum is ${APPOINTMENT_CONFIG.MIN_BOOKING_LEAD_TIME_MINUTES}`,
-      userMessage: "Désolée bébé, j'ai besoin d'au moins 30min pour me préparer 😘",
+      userMessage: "Désolée bébé, j'ai besoin d'au moins 15min pour me préparer 😘",
       minutesUntil: leadTimeValidation.minutesUntil
     };
   }

@@ -136,8 +136,8 @@ export const CONVERSATION_CONFIG = {
 // Appointment Configuration
 // ============================================================================
 export const APPOINTMENT_CONFIG = {
-  // Minimum booking lead time in minutes (client must book at least 30 min ahead)
-  MIN_BOOKING_LEAD_TIME_MINUTES: 30,
+  // Minimum booking lead time in minutes (client must book at least 15 min ahead)
+  MIN_BOOKING_LEAD_TIME_MINUTES: 15,
   
   // Number of days to look ahead for appointments
   APPOINTMENT_LOOKAHEAD_DAYS: 7,
