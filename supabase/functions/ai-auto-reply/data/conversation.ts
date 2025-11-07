@@ -101,11 +101,11 @@ export async function checkTodayAppointment(
 /**
  * Checks if a conversation exists and retrieves its contact phone
  * Used for security validation before sending messages
- * 
+ *
  * @param supabase - Supabase client
  * @param conversationId - Conversation ID
  * @returns Object with contact_phone if conversation exists, null otherwise
- * 
+ *
  * @example
  * const conversation = await getConversationContactPhone(supabase, conversation_id);
  * if (conversation) {
@@ -127,6 +127,34 @@ export async function getConversationContactPhone(
   }
 
   return data as { contact_phone: string };
+}
+
+/**
+ * Retrieves conversation contact information (phone and name)
+ * Used for appointment creation
+ *
+ * @param supabase - Supabase client
+ * @param conversationId - Conversation ID
+ * @returns Object with contact_phone and contact_name
+ *
+ * @example
+ * const { contact_phone, contact_name } = await getConversationContact(supabase, conversation_id);
+ */
+export async function getConversationContact(
+  supabase: SupabaseClient,
+  conversationId: string
+): Promise<{ contact_phone: string; contact_name: string | null }> {
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('contact_phone, contact_name')
+    .eq('id', conversationId)
+    .single();
+  if (error) {
+    console.error('[data] Error fetching conversation contact:', error);
+    throw new Error(`Failed to fetch conversation contact: ${error.message}`);
+  }
+
+  return data as { contact_phone: string; contact_name: string | null };
 }
 
 /**

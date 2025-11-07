@@ -64,7 +64,8 @@ export async function validateJWT(
     const user_id = payload.sub;
 
     if (!user_id) {
-      console.error('[auth] JWT payload missing sub claim');
+      // Don't log error if this might be a service role key (caught in index.ts)
+      // This reduces noise in logs when internal calls are properly authenticated
       return { isValid: false, error: 'Invalid JWT: missing user_id' };
     }
 
@@ -72,10 +73,11 @@ export async function validateJWT(
     return { isValid: true, user_id };
 
   } catch (error) {
-    console.error('[auth] JWT verification failed:', error);
-    return { 
-      isValid: false, 
-      error: `JWT verification failed: ${error instanceof Error ? error.message : String(error)}` 
+    // Don't log detailed error for potential service role keys
+    // The calling code (index.ts) handles internal calls separately
+    return {
+      isValid: false,
+      error: `JWT verification failed: ${error instanceof Error ? error.message : String(error)}`
     };
   }
 }

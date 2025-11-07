@@ -39,7 +39,7 @@ import { analyzeConversationContext, shouldSkipEnrichment } from './temporal/con
 
 // Data
 import { fetchAllUserData } from './data/user.ts';
-import { fetchAllConversationData, getConversationContactPhone } from './data/conversation.ts';
+import { fetchAllConversationData, getConversationContactPhone, getConversationContact } from './data/conversation.ts';
 import { buildUserContext, buildCurrentDateTime, formatAvailabilitiesForPrompt } from './data/context.ts';
 
 // Availability
@@ -523,18 +523,23 @@ Deno.serve(async (request) => {
             // 10b. CREATE APPOINTMENT
             // ========================================
             console.log('[workflow] ✅ All validations passed, creating appointment...');
-            
+
+            // Get conversation contact info for appointment
+            const conversationContact = await getConversationContact(supabase, conversation_id);
+
             const priceMappings = buildPriceMappings(userInfo.tarifs, userInfo.extras);
-            
+
             const appointment = await createAppointment(
               supabase,
               appointmentData,
               conversation_id,
               user_id,
+              conversationContact.contact_phone,
+              conversationContact.contact_name,
               userInfo,
               priceMappings
             );
-            
+
             console.log('[workflow] ✅ Appointment created:', appointment.id);
             
             await logAppointmentCreation(
@@ -616,25 +621,42 @@ Deno.serve(async (request) => {
     try {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
-      
+
       // Use previously parsed request body, or try to parse if not available
       const body = requestBody || await request.json().catch(() => ({}));
-      
+
       if (body.conversation_id) {
-        const auth = await validateJWT(
-          request.headers.get('Authorization'),
-          env.JWT_SECRET
-        ).catch(() => ({ isValid: false }));
-        
-        if (auth.isValid && auth.user_id) {
+        // Check authentication - handle both internal (service role) and external (JWT) calls
+        const authHeader = request.headers.get('Authorization');
+        let userId: string | undefined;
+
+        if (authHeader) {
+          const token = authHeader.startsWith('Bearer ')
+            ? authHeader.substring(7).trim()
+            : authHeader.trim();
+
+          // Check if this is an internal call with service role key
+          if (token === env.SUPABASE_SERVICE_ROLE_KEY) {
+            // Internal call - get user_id from body
+            userId = body.user_id;
+          } else {
+            // External call - validate JWT
+            const auth = await validateJWT(authHeader, env.JWT_SECRET).catch(() => ({ isValid: false }));
+            if (auth.isValid && auth.user_id) {
+              userId = auth.user_id;
+            }
+          }
+        }
+
+        if (userId) {
           const supabase = createClient(
             env.SUPABASE_URL,
             env.SUPABASE_SERVICE_ROLE_KEY
           );
-          
+
           await logError(
             supabase,
-            auth.user_id,
+            userId,
             body.conversation_id,
             errorMessage,
             errorStack

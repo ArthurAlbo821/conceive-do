@@ -165,6 +165,8 @@ export function determineServiceName(
  * @param appointmentData - Appointment data from AI function call
  * @param conversationId - Conversation ID
  * @param userId - User ID
+ * @param contactPhone - Contact phone number
+ * @param contactName - Contact name (optional)
  * @param userInfo - User information
  * @param priceMappings - Price mappings
  * @returns Created appointment object
@@ -175,6 +177,8 @@ export async function createAppointment(
   appointmentData: AppointmentData,
   conversationId: string,
   userId: string,
+  contactPhone: string,
+  contactName: string | null,
   userInfo: UserInformation,
   priceMappings: PriceMappings
 ): Promise<any> {
@@ -213,12 +217,14 @@ export async function createAppointment(
   const appointmentToCreate = {
     conversation_id: conversationId,
     user_id: userId,
+    contact_phone: contactPhone,
+    contact_name: contactName || 'Unknown',
     appointment_date: appointmentData.appointment_date,
     start_time: appointmentData.appointment_time,
     end_time: endTime,
     duration_minutes: durationMinutes,
     service: serviceName,
-    extras: appointmentData.selected_extras.filter(e => e !== 'aucun'),
+    selected_extras: appointmentData.selected_extras.filter(e => e !== 'aucun'),
     total_price: totalPrice,
     status: APPOINTMENT_STATUS.CONFIRMED,
     client_arrived: false,
