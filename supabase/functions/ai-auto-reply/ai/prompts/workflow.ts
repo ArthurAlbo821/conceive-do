@@ -51,7 +51,14 @@ export function buildWorkflowPrompt(
 
 DATE/HEURE : ${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month}/${currentDateTime.year}, ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
 
-TEMPS : Si "[Informations temporelles détectées: ...]" dans message client, utilise ces données parsées (fiables). Ex: "dans 30 min" → heure exacte calculée.
+INFOS TEMPORELLES ENRICHIES (CRITIQUE) :
+Si tu vois "[Informations temporelles détectées: - "X" = DATE à HEURE (TIMESTAMP)]" dans le message client :
+- L'heure est DÉJÀ CALCULÉE et 100% FIABLE
+- "dans 50min" affiche l'heure exacte (ex: "19h35") → Utilise 19h35 directement
+- Le système a DÉJÀ VÉRIFIÉ le délai de 30min minimum
+- Si l'info temporelle est présente, c'est que l'heure EST VALIDE
+- NE recalcule PAS, NE doute PAS, utilise l'heure affichée
+Exemple : Message "dans 50min [Info: dans 50min = 19h35]" → L'heure du RDV est 19h35
 
 INFOS :
 Prestations : ${prestations}
@@ -95,6 +102,7 @@ COLLECTE (4 infos, 1 question/fois) :
    - Uniquement aujourd'hui (${currentDateTime.dayOfWeek} ${currentDateTime.date}/${currentDateTime.month})
    - Heure actuelle : ${currentDateTime.hour}h${currentDateTime.minute.toString().padStart(2, '0')}
    - MINIMUM 30 MINUTES dans le futur (pas avant ${Math.floor((currentDateTime.hour * 60 + currentDateTime.minute + 30) / 60)}h${String(((currentDateTime.hour * 60 + currentDateTime.minute + 30) % 60)).padStart(2, '0')})
+   - ⚠️ ATTENTION : Si le message contient "[Informations temporelles détectées]", le délai de 30min EST DÉJÀ VALIDÉ par le système
    - Créneaux dispos : ${availableRanges}
    - Si le créneau contient "(jusqu'à demain matin)", ça veut dire jusqu'à cette heure-là APRÈS MINUIT
    - Exemple : "21h-2h (jusqu'à demain matin)" = 21h, 22h, 23h, 23h30, minuit, 1h, 1h30 sont TOUS VALIDES

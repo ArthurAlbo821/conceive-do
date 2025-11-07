@@ -35,11 +35,14 @@ export function isRelativeTimeExpression(text: string): boolean {
 /**
  * Enriches a message with parsed temporal information
  * 
- * IMPORTANT: Only ABSOLUTE time expressions are enriched
- * Relative expressions (e.g., "dans 50min") are skipped because they require
- * conversational context that the AI can better handle
+ * The enrichment adds formatted temporal info at the end of the message.
  * 
- * The enrichment adds formatted temporal info at the end of the message:
+ * IMPORTANT: Context analyzer (in index.ts) determines if this function is called:
+ * - DURATION context (e.g., "1h" after "Quelle durée?") → NO parsing, NO enrichment
+ * - TIME context (e.g., "19h" or "dans 50min" after "À quelle heure?") → Parse and enrich
+ * 
+ * This function enriches ALL temporal entities it receives, including relative
+ * expressions like "dans 50min", because Duckling already calculated the exact time.
  * 
  * Original: "Je peux venir à 14h20"
  * Enriched: "Je peux venir à 14h20
@@ -69,21 +72,12 @@ export function enrichMessageWithTemporal(
 
   let enrichedMessage = originalMessage;
 
-  // Filter to keep only absolute time expressions
-  // Relative expressions (e.g., "dans 50min", "pour 1h") are skipped
+  // Keep all time entities with values
+  // Context analyzer (in index.ts) already handles DURATION vs TIME
+  // So we can safely enrich all temporal entities that reach this point
   const timeEntities = entities.filter((e) => {
     // Only keep 'time' entities with values
-    if (e.dim !== 'time' || !e.value || !e.value.value) {
-      return false;
-    }
-
-    // Skip relative time expressions - let AI handle them with conversational context
-    if (isRelativeTimeExpression(e.body)) {
-      console.log('[temporal] Skipping relative expression:', e.body);
-      return false;
-    }
-
-    return true;
+    return e.dim === 'time' && e.value && e.value.value;
   });
 
   if (timeEntities.length > 0) {
