@@ -233,17 +233,22 @@ Deno.serve(async (request) => {
     // ========================================
     console.log('[context-analysis] 🔍 Analyzing conversation context...');
     
-    const contextAnalysis = await analyzeConversationContext(
-      messages,
-      message_text,
-      env.OPENAI_API_KEY
-    );
-    
-    console.log('[context-analysis] ✅ Result:', contextAnalysis.contextType);
-    console.log('[context-analysis] Confidence:', contextAnalysis.confidence);
-    console.log('[context-analysis] Reasoning:', contextAnalysis.reasoning);
-    console.log('[context-analysis] Latency:', contextAnalysis.latencyMs, 'ms');
-    
+    let contextAnalysis;
+    try {
+      contextAnalysis = await analyzeConversationContext(
+        messages,
+        message_text,
+        env.OPENAI_API_KEY
+      );
+      
+      console.log('[context-analysis] ✅ Result:', contextAnalysis.contextType);
+      console.log('[context-analysis] Confidence:', contextAnalysis.confidence);
+      console.log('[context-analysis] Reasoning:', contextAnalysis.reasoning);
+      console.log('[context-analysis] Latency:', contextAnalysis.latencyMs, 'ms');
+    } catch (error) {
+      console.error('[context-analysis] ⚠️ Failed, defaulting to UNKNOWN:', error);
+      contextAnalysis = { contextType: 'UNKNOWN', confidence: 0, reasoning: 'Analysis failed', latencyMs: 0 };
+    }
     // ========================================
     // 5b. CONDITIONAL TEMPORAL PARSING
     // ========================================

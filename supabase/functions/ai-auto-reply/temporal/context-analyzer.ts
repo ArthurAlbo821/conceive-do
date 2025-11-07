@@ -39,6 +39,35 @@ export interface ContextAnalysisResult {
 }
 
 /**
+ * Type guard to check if value is a non-null object
+ */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Validates and returns a ContextType or null if invalid
+ */
+function validateContextType(value: unknown): ContextType | null {
+  const validTypes: ContextType[] = ['DURATION', 'TIME', 'UNKNOWN'];
+  if (typeof value === 'string' && validTypes.includes(value as ContextType)) {
+    return value as ContextType;
+  }
+  return null;
+}
+
+/**
+ * Validates and returns confidence level or null if invalid
+ */
+function validateConfidence(value: unknown): 'high' | 'medium' | 'low' | null {
+  const validLevels = ['high', 'medium', 'low'];
+  if (typeof value === 'string' && validLevels.includes(value)) {
+    return value as 'high' | 'medium' | 'low';
+  }
+  return null;
+}
+
+/**
  * Analyzes conversation context to determine message intent
  * 
  * @param messages - Recent conversation history (chronological order, oldest first)
@@ -127,20 +156,140 @@ export async function analyzeConversationContext(
       };
     }
 
-    const data = await response.json();
-    const result = JSON.parse(data.choices[0].message.content);
-    
+    // Parse and validate OpenAI response with comprehensive error handling
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Failed to parse JSON response:', parseError);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Failed to parse API response',
+        latencyMs
+      };
+    }
+
+    // Validate response structure
+    if (!isObject(data)) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Response is not an object:', typeof data);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Invalid API response structure',
+        latencyMs
+      };
+    }
+
+    if (!Array.isArray(data.choices) || data.choices.length === 0) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Response missing choices array:', data);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Invalid API response: missing choices',
+        latencyMs
+      };
+    }
+
+    const firstChoice = data.choices[0];
+    if (!isObject(firstChoice) || !isObject(firstChoice.message)) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Invalid choice structure:', firstChoice);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Invalid API response: malformed choice',
+        latencyMs
+      };
+    }
+
+    const content = firstChoice.message.content;
+    if (typeof content !== 'string') {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Message content is not a string:', typeof content);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Invalid API response: content not a string',
+        latencyMs
+      };
+    }
+
+    // Parse the content JSON
+    let parsedResult: unknown;
+    try {
+      parsedResult = JSON.parse(content);
+    } catch (contentParseError) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Failed to parse content JSON:', contentParseError);
+      console.log('[context-analyzer] Content was:', content.substring(0, 200));
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Failed to parse AI response content',
+        latencyMs
+      };
+    }
+
+    // Validate parsed result structure
+    if (!isObject(parsedResult)) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Parsed result is not an object:', typeof parsedResult);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Invalid AI response format',
+        latencyMs
+      };
+    }
+
+    // Validate and extract context_type
+    const contextType = validateContextType(parsedResult.context_type);
+    if (!contextType) {
+      const latencyMs = Date.now() - startTime;
+      console.error('[context-analyzer] ❌ Invalid context_type:', parsedResult.context_type);
+      console.log('[context-analyzer] Latency:', latencyMs, 'ms');
+      return {
+        contextType: 'UNKNOWN',
+        confidence: 'low',
+        reasoning: 'Invalid context_type value in response',
+        latencyMs
+      };
+    }
+
+    // Validate and extract confidence
+    const confidence = validateConfidence(parsedResult.confidence);
+    if (!confidence) {
+      const latencyMs = Date.now() - startTime;
+      console.warn('[context-analyzer] ⚠️ Invalid confidence:', parsedResult.confidence, '- defaulting to "low"');
+    }
+
+    // Extract reasoning (should be a string)
+    const reasoning = typeof parsedResult.reasoning === 'string' 
+      ? parsedResult.reasoning 
+      : 'No reasoning provided';
+
     const latencyMs = Date.now() - startTime;
     
-    console.log('[context-analyzer] ✅ Analysis result:', result.context_type);
-    console.log('[context-analyzer] Confidence:', result.confidence);
-    console.log('[context-analyzer] Reasoning:', result.reasoning);
+    console.log('[context-analyzer] ✅ Analysis result:', contextType);
+    console.log('[context-analyzer] Confidence:', confidence || 'low');
+    console.log('[context-analyzer] Reasoning:', reasoning);
     console.log('[context-analyzer] Latency:', latencyMs, 'ms');
 
     return {
-      contextType: result.context_type as ContextType,
-      confidence: result.confidence,
-      reasoning: result.reasoning,
+      contextType,
+      confidence: confidence || 'low',
+      reasoning,
       latencyMs
     };
 
