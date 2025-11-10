@@ -22,7 +22,7 @@ import { validateEnv } from './config/env.ts';
 const env = validateEnv();
 
 // Config
-import { AI_MODES, APPOINTMENT_STATUS, getCorsHeaders } from './config.ts';
+import { AI_MODES, APPOINTMENT_STATUS, CONVERSATION_CONFIG, getCorsHeaders } from './config.ts';
 
 // Security
 import { validateJWT, authErrorResponse } from './security/auth.ts';
@@ -39,7 +39,12 @@ import { analyzeConversationContext, shouldSkipEnrichment } from './temporal/con
 
 // Data
 import { fetchAllUserData } from './data/user.ts';
-import { fetchAllConversationData, getConversationContactPhone, getConversationContact } from './data/conversation.ts';
+import {
+  fetchConversationMessages,
+  checkTodayAppointment,
+  getConversationContactPhone,
+  getConversationContact,
+} from './data/conversation.ts';
 import { buildUserContext, buildCurrentDateTime, formatAvailabilitiesForPrompt } from './data/context.ts';
 
 // Availability
@@ -60,6 +65,9 @@ import { buildConfirmationMessage } from './appointments/confirmation.ts';
 
 // Messaging
 import { sendWhatsAppMessageWithRetry } from './messaging/whatsapp.ts';
+
+// Shared integrations
+import { fetchSupermemoryContext } from '../_shared/supermemory.ts';
 
 // Logging
 import { 
@@ -208,16 +216,38 @@ Deno.serve(async (request) => {
     // ========================================
     console.log('\n[5/12] 📊 Fetch data...');
     
-    const [userData, conversationData] = await Promise.all([
-      fetchAllUserData(supabase, user_id),
-      fetchAllConversationData(supabase, conversation_id)
-    ]);
-    
+    const userDataPromise = fetchAllUserData(supabase, user_id);
+    const todayAppointmentPromise = checkTodayAppointment(supabase, conversation_id);
+    const supermemoryPromise = fetchSupermemoryContext({
+      conversationId: conversation_id,
+      limit: CONVERSATION_CONFIG.MAX_HISTORY_MESSAGES,
+      userId: user_id,
+    });
+
+    const userData = await userDataPromise;
     const { userInfo, availabilities, appointments } = userData;
-    const { messages, todayAppointment } = conversationData;
-    
+
+    const supermemoryContext = await supermemoryPromise;
+    let messagesSource: 'supermemory' | 'database' = 'database';
+    let messages = supermemoryContext?.messages ?? [];
+
+    if (messages.length > 0) {
+      messagesSource = 'supermemory';
+    } else {
+      if (!supermemoryContext) {
+        console.warn('[data] ⚠️ Supermemory unavailable, falling back to database messages');
+      } else {
+        console.log('[data] ℹ️ Supermemory returned no messages, using database history');
+      }
+
+      messages = await fetchConversationMessages(supabase, conversation_id);
+    }
+
+    const todayAppointment = await todayAppointmentPromise;
+
     console.log('[data] ✅ User info loaded');
     console.log('[data] ✅', availabilities.length, 'availabilities,', appointments.length, 'appointments');
+    console.log('[data] ✅ Context source:', messagesSource);
     console.log('[data] ✅', messages.length, 'messages loaded');
     console.log('[data] ✅ Today appointment:', todayAppointment ? 'YES' : 'NO');
 
@@ -363,9 +393,12 @@ Deno.serve(async (request) => {
     // ========================================
     console.log('\n[10/12] 🧠 Call OpenAI...');
     console.log('\n=== 🧠 DEBUG OPENAI CALL ===');
-    console.log('📝 Historique envoyé:', messages.length, 'messages');
+    console.log('📝 Historique envoyé:', messages.length, 'messages', `(source: ${messagesSource})`);
     messages.forEach((msg, i) => {
-      console.log(`  ${i + 1}. [${msg.direction}]:`, msg.content.substring(0, 100) + '...');
+      const preview = msg.content.length > 160
+        ? `${msg.content.substring(0, 160)}…`
+        : msg.content;
+      console.log(`  ${i + 1}. [${msg.direction}]`, preview);
     });
     console.log('📩 Message actuel (enrichi):', enrichedMessage);
     console.log('============================\n');

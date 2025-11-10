@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
+import { syncMessageToSupermemory } from '../_shared/supermemory.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -148,23 +149,40 @@ Deno.serve(async (req) => {
     const responseData = await evolutionResponse.json();
     console.log('[send-message] Evolution response:', responseData);
 
-    // Stocker le message dans la DB
-    const { error: msgError } = await supabase
-      .from('messages')
-      .insert({
+    const messageId =
+      responseData?.key?.id || `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+    const ownerUserId = conversation.user_id || userId;
+
+    const syncResult = await syncMessageToSupermemory({
+      supabase,
+      userId: ownerUserId,
+      message: {
         conversation_id: conversation.id,
         instance_id: instance.id,
+        message_id: messageId,
         sender_phone: instance.phone_number,
         receiver_phone: conversation.contact_phone,
         direction: 'outgoing',
         content: message,
         status: 'sent',
         timestamp: new Date().toISOString(),
-      });
+      },
+      metadata: {
+        source: 'send-whatsapp-message',
+        conversation_id: conversation.id,
+        instance_id: instance.id,
+        instance_name: instance.instance_name,
+      },
+    });
 
-    if (msgError) {
-      console.error('[send-message] Error storing message:', msgError);
-      throw msgError;
+    if (syncResult.dbError) {
+      console.error('[send-message] Error storing message:', syncResult.dbError);
+      throw syncResult.dbError;
+    }
+
+    if (!syncResult.supermemoryStored && !syncResult.supermemorySkipped) {
+      console.warn('[send-message] Supermemory storage failed, message kept via database fallback');
     }
 
     // Mettre à jour la conversation

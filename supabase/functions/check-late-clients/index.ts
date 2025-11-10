@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { syncMessageToSupermemory } from "../_shared/supermemory.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -269,17 +270,34 @@ serve(async (req) => {
         const messageId =
           evolutionData.key?.id || `msg_${Date.now()}_${Math.random()}`;
 
-        await supabaseClient.from("messages").insert({
-          conversation_id: conversation.id,
-          instance_id: instance.id,
-          message_id: messageId,
-          sender_phone: instance.instance_name,
-          receiver_phone: conversation.contact_phone,
-          direction: "outgoing",
-          content: randomMessage,
-          status: "sent",
-          timestamp: new Date().toISOString(),
+        const syncResult = await syncMessageToSupermemory({
+          supabase: supabaseClient,
+          userId: appointment.user_id,
+          message: {
+            conversation_id: conversation.id,
+            instance_id: instance.id,
+            message_id: messageId,
+            sender_phone: instance.instance_name,
+            receiver_phone: conversation.contact_phone,
+            direction: "outgoing",
+            content: randomMessage,
+            status: "sent",
+            timestamp: new Date().toISOString(),
+          },
+          metadata: {
+            source: "check-late-clients",
+            appointment_id: appointment.id,
+            instance_name: instance.instance_name,
+          },
         });
+
+        if (syncResult.dbError) {
+          console.error('[check-late-clients] Failed to store reminder message in database:', syncResult.dbError);
+        }
+
+        if (!syncResult.supermemoryStored && !syncResult.supermemorySkipped) {
+          console.warn('[check-late-clients] Supermemory storage failed for reminder message');
+        }
 
         // Update conversation's last message
         await supabaseClient

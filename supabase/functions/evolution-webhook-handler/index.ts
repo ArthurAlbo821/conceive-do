@@ -6,6 +6,7 @@ import {
   validateWebhookPayload,
 } from "../_shared/webhook-security.ts";
 import { normalizePhoneNumber } from "../_shared/normalize-phone.ts";
+import { syncMessageToSupermemory } from "../_shared/supermemory.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -698,22 +699,37 @@ Deno.serve(async (req) => {
         console.warn("[webhook] instancePhone is empty after fallback, using normalizedKey");
       }
 
-      const { error: msgError } = await supabase.from("messages").insert({
-        conversation_id: conversationId,
-        instance_id: instance.id,
-        message_id: key.id,
-        sender_phone: fromMe ? instancePhone || normalizedKey : normalizedKey,
-        receiver_phone: fromMe ? normalizedKey : instancePhone || normalizedKey,
-        direction: fromMe ? "outgoing" : "incoming",
-        content: messageText,
-        status: "delivered",
-        timestamp: messageTimestamp,
+      const generatedMessageId = key?.id || `evo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      const syncResult = await syncMessageToSupermemory({
+        supabase,
+        userId: instance.user_id,
+        message: {
+          conversation_id: conversationId,
+          instance_id: instance.id,
+          message_id: generatedMessageId,
+          sender_phone: fromMe ? instancePhone || normalizedKey : normalizedKey,
+          receiver_phone: fromMe ? normalizedKey : instancePhone || normalizedKey,
+          direction: fromMe ? "outgoing" : "incoming",
+          content: messageText,
+          status: "delivered",
+          timestamp: messageTimestamp,
+        },
+        metadata: {
+          source: "evolution-webhook",
+          instance_id: instance.id,
+          instance_name: instance.instance_name,
+        },
       });
 
-      if (msgError) {
-        console.error("[webhook] Error storing message:", msgError);
+      if (syncResult.dbError) {
+        console.error("[webhook] Error storing message:", syncResult.dbError);
       } else {
         console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
+      }
+
+      if (!syncResult.supermemoryStored && !syncResult.supermemorySkipped) {
+        console.warn('[webhook] Supermemory storage failed, message kept via database fallback');
       }
 
       // Trigger AI auto-reply if enabled for this conversation and message is incoming
