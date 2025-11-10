@@ -1,4 +1,7 @@
-import { useEffect } from "react";
+// src/pages/Informations.tsx
+// This file builds the professional informations page and its multi-step form UX.
+// It does not change validation, submission, or backend interactions.
+import { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -72,6 +75,7 @@ type FormValues = z.infer<typeof informationsSchema>;
 
 const Informations = () => {
   const { informations, isLoading, saveInformations, isSaving } = useUserInformations();
+  const [currentStep, setCurrentStep] = useState(0);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(informationsSchema),
@@ -115,6 +119,14 @@ const Informations = () => {
     }
   }, [informations, form]);
 
+  // Field groups for each step. We trigger validation only on the currently visible fields.
+  const stepFieldGroups: (keyof FormValues)[][] = [
+    ["prestations", "extras", "taboos", "tarifs"],
+    ["adresse", "door_code", "floor", "elevator_info", "access_instructions"],
+    [],
+    ["notification_phone"],
+  ];
+
   const onSubmit = (data: FormValues) => {
     // Ensure all required fields are present
     const formattedData: UserInformations = {
@@ -130,6 +142,40 @@ const Informations = () => {
       access_instructions: data.access_instructions || "",
     };
     saveInformations(formattedData);
+  };
+
+  const totalSteps = 4;
+  const progressPercentage = ((currentStep + 1) / totalSteps) * 100;
+
+  // Step specific validation before allowing navigation.
+  const handleNext = async () => {
+    const fieldsToValidate = stepFieldGroups[currentStep];
+    if (fieldsToValidate.length > 0) {
+      const isValid = await form.trigger(fieldsToValidate as (keyof FormValues)[], {
+        shouldFocus: true,
+      });
+      if (!isValid) {
+        return;
+      }
+    }
+
+    setCurrentStep((prev) => Math.min(prev + 1, totalSteps - 1));
+  };
+
+  const handlePrevious = () => {
+    setCurrentStep((prev) => Math.max(prev - 1, 0));
+  };
+
+  const getStepClassName = (index: number) => {
+    if (index === currentStep) {
+      return "translate-x-0 opacity-100 pointer-events-auto";
+    }
+
+    if (index < currentStep) {
+      return "-translate-x-full opacity-0 pointer-events-none";
+    }
+
+    return "translate-x-full opacity-0 pointer-events-none";
   };
 
   if (isLoading) {
@@ -163,387 +209,457 @@ const Informations = () => {
           <div className="p-6 max-w-4xl mx-auto">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                {/* Prestations */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Prestations</CardTitle>
-                    <CardDescription>
-                      Liste de vos prestations ({prestationsArray.fields.length}/10)
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {prestationsArray.fields.map((field, index) => (
-                      <FormField
-                        key={field.id}
-                        control={form.control}
-                        name={`prestations.${index}.name`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <div className="flex gap-2">
-                              <FormControl>
-                                <Input placeholder="Ex: Massage relaxant" {...field} />
-                              </FormControl>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => prestationsArray.remove(index)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => prestationsArray.append({ id: crypto.randomUUID(), name: "" })}
-                      disabled={prestationsArray.fields.length >= 10}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Ajouter une prestation
-                    </Button>
-                  </CardContent>
-                </Card>
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">
+                        Étape {currentStep + 1} / {totalSteps}
+                      </p>
+                      <h2 className="text-xl font-semibold">
+                        {[
+                          "Prestations, extras, taboos et tarifs",
+                          "Adresse et informations d'accès",
+                          "Disponibilités",
+                          "Notifications WhatsApp",
+                        ][currentStep]}
+                      </h2>
+                    </div>
+                  </div>
+                  <div className="mt-4 h-2 w-full rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300"
+                      style={{ width: `${progressPercentage}%` }}
+                    />
+                  </div>
+                </div>
 
-                {/* Extras */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Extras</CardTitle>
-                    <CardDescription>
-                      Services supplémentaires avec tarifs ({extrasArray.fields.length}/10)
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {extrasArray.fields.map((field, index) => (
-                      <div key={field.id} className="space-y-2">
-                        <div className="flex gap-2">
-                          <FormField
-                            control={form.control}
-                            name={`extras.${index}.name`}
-                            render={({ field }) => (
-                              <FormItem className="flex-1">
-                                <FormControl>
-                                  <Input placeholder="Nom de l'extra" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={`extras.${index}.price`}
-                            render={({ field }) => (
-                              <FormItem className="w-32">
-                                <FormControl>
-                                  <Input type="number" placeholder="Prix" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => extrasArray.remove(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
+                <div className="relative overflow-hidden min-h-[520px]">
+                  <div className="grid">
+                    {[0, 1, 2, 3].map((index) => (
+                      <div
+                        key={index}
+                        className={`absolute inset-0 transform transition-all duration-300 ease-in-out ${getStepClassName(index)}`}
+                      >
+                        <div className="space-y-6 pb-6">
+                          {index === 0 && (
+                            <>
+                              {/* Prestations */}
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle>Prestations</CardTitle>
+                                  <CardDescription>
+                                    Liste de vos prestations ({prestationsArray.fields.length}/10)
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  {prestationsArray.fields.map((field, index) => (
+                                    <FormField
+                                      key={field.id}
+                                      control={form.control}
+                                      name={`prestations.${index}.name`}
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <div className="flex gap-2">
+                                            <FormControl>
+                                              <Input placeholder="Ex: Massage relaxant" {...field} />
+                                            </FormControl>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => prestationsArray.remove(index)}
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => prestationsArray.append({ id: crypto.randomUUID(), name: "" })}
+                                    disabled={prestationsArray.fields.length >= 10}
+                                  >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Ajouter une prestation
+                                  </Button>
+                                </CardContent>
+                              </Card>
+
+                              {/* Extras */}
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle>Extras</CardTitle>
+                                  <CardDescription>
+                                    Services supplémentaires avec tarifs ({extrasArray.fields.length}/10)
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  {extrasArray.fields.map((field, index) => (
+                                    <div key={field.id} className="space-y-2">
+                                      <div className="flex gap-2">
+                                        <FormField
+                                          control={form.control}
+                                          name={`extras.${index}.name`}
+                                          render={({ field }) => (
+                                            <FormItem className="flex-1">
+                                              <FormControl>
+                                                <Input placeholder="Nom de l'extra" {...field} />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )}
+                                        />
+                                        <FormField
+                                          control={form.control}
+                                          name={`extras.${index}.price`}
+                                          render={({ field }) => (
+                                            <FormItem className="w-32">
+                                              <FormControl>
+                                                <Input type="number" placeholder="Prix" {...field} />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )}
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => extrasArray.remove(index)}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      extrasArray.append({ id: crypto.randomUUID(), name: "", price: 0 })
+                                    }
+                                    disabled={extrasArray.fields.length >= 10}
+                                  >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Ajouter un extra
+                                  </Button>
+                                </CardContent>
+                              </Card>
+
+                              {/* Taboos */}
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle>Taboos</CardTitle>
+                                  <CardDescription>
+                                    Pratiques non acceptées ({taboosArray.fields.length}/10)
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  {taboosArray.fields.map((field, index) => (
+                                    <FormField
+                                      key={field.id}
+                                      control={form.control}
+                                      name={`taboos.${index}.name`}
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <div className="flex gap-2">
+                                            <FormControl>
+                                              <Input placeholder="Ex: Pratique non acceptée" {...field} />
+                                            </FormControl>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => taboosArray.remove(index)}
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => taboosArray.append({ id: crypto.randomUUID(), name: "" })}
+                                    disabled={taboosArray.fields.length >= 10}
+                                  >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Ajouter un taboo
+                                  </Button>
+                                </CardContent>
+                              </Card>
+
+                              {/* Tarifs */}
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle>Tarifs</CardTitle>
+                                  <CardDescription>
+                                    Grille tarifaire selon la durée ({tarifsArray.fields.length})
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  {tarifsArray.fields.map((field, index) => (
+                                    <div key={field.id} className="space-y-2">
+                                      <div className="flex gap-2">
+                                        <FormField
+                                          control={form.control}
+                                          name={`tarifs.${index}.duration`}
+                                          render={({ field }) => (
+                                            <FormItem className="flex-1">
+                                              <FormControl>
+                                                <Input placeholder="Ex: 30 min, 1h, nuit..." {...field} />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )}
+                                        />
+                                        <FormField
+                                          control={form.control}
+                                          name={`tarifs.${index}.price`}
+                                          render={({ field }) => (
+                                            <FormItem className="w-32">
+                                              <FormControl>
+                                                <Input type="number" placeholder="Prix" {...field} />
+                                              </FormControl>
+                                              <FormMessage />
+                                            </FormItem>
+                                          )}
+                                        />
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={() => tarifsArray.remove(index)}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      tarifsArray.append({ id: crypto.randomUUID(), duration: "", price: 0 })
+                                    }
+                                  >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Ajouter un tarif
+                                  </Button>
+                                </CardContent>
+                              </Card>
+                            </>
+                          )}
+
+                          {index === 1 && (
+                            <>
+                              {/* Adresse */}
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle>Adresse</CardTitle>
+                                  <CardDescription>Votre adresse professionnelle</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <FormField
+                                    control={form.control}
+                                    name="adresse"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormControl>
+                                          <Textarea
+                                            placeholder="Entrez votre adresse complète"
+                                            className="min-h-[100px]"
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+                                </CardContent>
+                              </Card>
+
+                              {/* Informations d'Accès (Sensibles) */}
+                              <Card className="border-orange-200 bg-orange-50/50">
+                                <CardHeader>
+                                  <div className="flex items-center gap-2">
+                                    <Lock className="h-5 w-5 text-orange-600" />
+                                    <CardTitle className="text-orange-900">Informations d'Accès</CardTitle>
+                                  </div>
+                                  <CardDescription className="text-orange-700">
+                                    Ces informations sensibles sont envoyées UNIQUEMENT aux clients avec rendez-vous confirmé aujourd'hui, et seulement après que vous ayez validé être prêt(e) à les recevoir.
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  <FormField
+                                    control={form.control}
+                                    name="door_code"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormControl>
+                                          <Input
+                                            placeholder="Code d'entrée (ex: A1234)"
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  <FormField
+                                    control={form.control}
+                                    name="floor"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormControl>
+                                          <Input
+                                            placeholder="Étage (ex: 3ème étage, Rez-de-chaussée)"
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  <FormField
+                                    control={form.control}
+                                    name="elevator_info"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormControl>
+                                          <Input
+                                            placeholder="Informations ascenseur (ex: Au fond à gauche, Escalier B)"
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  <FormField
+                                    control={form.control}
+                                    name="access_instructions"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormControl>
+                                          <Textarea
+                                            placeholder="Instructions supplémentaires (ex: Porte au fond du couloir, sonnette avec mon nom)"
+                                            className="min-h-[80px]"
+                                            {...field}
+                                          />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
+
+                                  <div className="bg-orange-100 border border-orange-300 rounded-md p-3 text-sm text-orange-800">
+                                    <p className="font-semibold mb-1">Sécurité :</p>
+                                    <p>Ces informations ne sont JAMAIS utilisées dans la prise de rendez-vous. Elles seront envoyées uniquement lorsque vous cliquerez sur "Prêt à Recevoir" dans la section Rendez-vous.</p>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                            </>
+                          )}
+
+                          {index === 2 && (
+                            <Card>
+                              <CardHeader>
+                                <CardTitle>Disponibilités</CardTitle>
+                                <CardDescription>
+                                  Gérer vos créneaux directement depuis le gestionnaire ci-dessous.
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                {/* Disponibilités */}
+                                <AvailabilityManager />
+                              </CardContent>
+                            </Card>
+                          )}
+
+                          {index === 3 && (
+                            <Card className="border-blue-200 bg-blue-50/50">
+                              <CardHeader>
+                                <div className="flex items-center gap-2">
+                                  <Bell className="h-5 w-5 text-blue-600" />
+                                  <CardTitle className="text-blue-900">Numéro de notification</CardTitle>
+                                </div>
+                                <CardDescription className="text-blue-700">
+                                  Votre numéro WhatsApp personnel pour recevoir les notifications de nouveaux rendez-vous et d'arrivée de clients.
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-4">
+                                <FormField
+                                  control={form.control}
+                                  name="notification_phone"
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormControl>
+                                        <Input
+                                          placeholder="+33612345678"
+                                          {...field}
+                                          className="font-mono"
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+
+                                <div className="bg-blue-100 border border-blue-300 rounded-md p-3 text-sm text-blue-800">
+                                  <p className="font-semibold mb-1">ℹ️ Format requis :</p>
+                                  <p className="mb-2">Le numéro doit être au format international (E.164) avec le préfixe pays.</p>
+                                  <p className="font-mono text-xs">
+                                    Exemples valides : +33612345678, +14155551234, +447911123456
+                                  </p>
+                                  <p className="mt-2 text-xs text-blue-700">
+                                    Si ce champ est vide, vous ne recevrez pas de notifications WhatsApp.
+                                  </p>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
                         </div>
                       </div>
                     ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        extrasArray.append({ id: crypto.randomUUID(), name: "", price: 0 })
-                      }
-                      disabled={extrasArray.fields.length >= 10}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Ajouter un extra
-                    </Button>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
 
-                {/* Taboos */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Taboos</CardTitle>
-                    <CardDescription>
-                      Pratiques non acceptées ({taboosArray.fields.length}/10)
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {taboosArray.fields.map((field, index) => (
-                      <FormField
-                        key={field.id}
-                        control={form.control}
-                        name={`taboos.${index}.name`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <div className="flex gap-2">
-                              <FormControl>
-                                <Input placeholder="Ex: Pratique non acceptée" {...field} />
-                              </FormControl>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => taboosArray.remove(index)}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => taboosArray.append({ id: crypto.randomUUID(), name: "" })}
-                      disabled={taboosArray.fields.length >= 10}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Ajouter un taboo
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* Tarifs */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Tarifs</CardTitle>
-                    <CardDescription>
-                      Grille tarifaire selon la durée ({tarifsArray.fields.length})
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {tarifsArray.fields.map((field, index) => (
-                      <div key={field.id} className="space-y-2">
-                        <div className="flex gap-2">
-                          <FormField
-                            control={form.control}
-                            name={`tarifs.${index}.duration`}
-                            render={({ field }) => (
-                              <FormItem className="flex-1">
-                                <FormControl>
-                                  <Input placeholder="Ex: 30 min, 1h, nuit..." {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name={`tarifs.${index}.price`}
-                            render={({ field }) => (
-                              <FormItem className="w-32">
-                                <FormControl>
-                                  <Input type="number" placeholder="Prix" {...field} />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => tarifsArray.remove(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        tarifsArray.append({ id: crypto.randomUUID(), duration: "", price: 0 })
-                      }
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Ajouter un tarif
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* Adresse */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Adresse</CardTitle>
-                    <CardDescription>Votre adresse professionnelle</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <FormField
-                      control={form.control}
-                      name="adresse"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Entrez votre adresse complète"
-                              className="min-h-[100px]"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
-
-                {/* Numéro de Notification */}
-                <Card className="border-blue-200 bg-blue-50/50">
-                  <CardHeader>
-                    <div className="flex items-center gap-2">
-                      <Bell className="h-5 w-5 text-blue-600" />
-                      <CardTitle className="text-blue-900">Numéro de notification</CardTitle>
-                    </div>
-                    <CardDescription className="text-blue-700">
-                      Votre numéro WhatsApp personnel pour recevoir les notifications de nouveaux rendez-vous et d'arrivée de clients.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="notification_phone"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input
-                              placeholder="+33612345678"
-                              {...field}
-                              className="font-mono"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className="bg-blue-100 border border-blue-300 rounded-md p-3 text-sm text-blue-800">
-                      <p className="font-semibold mb-1">ℹ️ Format requis :</p>
-                      <p className="mb-2">Le numéro doit être au format international (E.164) avec le préfixe pays.</p>
-                      <p className="font-mono text-xs">
-                        Exemples valides : +33612345678, +14155551234, +447911123456
-                      </p>
-                      <p className="mt-2 text-xs text-blue-700">
-                        Si ce champ est vide, vous ne recevrez pas de notifications WhatsApp.
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Informations d'Accès (Sensibles) */}
-                <Card className="border-orange-200 bg-orange-50/50">
-                  <CardHeader>
-                    <div className="flex items-center gap-2">
-                      <Lock className="h-5 w-5 text-orange-600" />
-                      <CardTitle className="text-orange-900">Informations d'Accès</CardTitle>
-                    </div>
-                    <CardDescription className="text-orange-700">
-                      Ces informations sensibles sont envoyées UNIQUEMENT aux clients avec rendez-vous confirmé aujourd'hui, et seulement après que vous ayez validé être prêt(e) à les recevoir.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="door_code"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input
-                              placeholder="Code d'entrée (ex: A1234)"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="floor"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input
-                              placeholder="Étage (ex: 3ème étage, Rez-de-chaussée)"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="elevator_info"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Input
-                              placeholder="Informations ascenseur (ex: Au fond à gauche, Escalier B)"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="access_instructions"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Instructions supplémentaires (ex: Porte au fond du couloir, sonnette avec mon nom)"
-                              className="min-h-[80px]"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className="bg-orange-100 border border-orange-300 rounded-md p-3 text-sm text-orange-800">
-                      <p className="font-semibold mb-1">Sécurité :</p>
-                      <p>Ces informations ne sont JAMAIS utilisées dans la prise de rendez-vous. Elles seront envoyées uniquement lorsque vous cliquerez sur "Prêt à Recevoir" dans la section Rendez-vous.</p>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={isSaving}>
-                    {isSaving ? "Enregistrement..." : "Enregistrer"}
+                <div className="flex items-center justify-between pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePrevious}
+                    className={currentStep === 0 ? "invisible pointer-events-none" : ""}
+                  >
+                    Précédent
                   </Button>
+                  {currentStep < totalSteps - 1 ? (
+                    <Button type="button" onClick={handleNext}>
+                      Suivant
+                    </Button>
+                  ) : (
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving ? "Enregistrement..." : "Terminer"}
+                    </Button>
+                  )}
                 </div>
               </form>
             </Form>
-
-            {/* Disponibilités */}
-            <div className="mt-6">
-              <AvailabilityManager />
-            </div>
           </div>
         </main>
       </div>
