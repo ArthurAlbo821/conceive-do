@@ -12,6 +12,10 @@ import Messages from "./pages/Messages";
 import Informations from "./pages/Informations";
 import Appointments from "./pages/Appointments";
 import NotFound from "./pages/NotFound";
+import SuperadminDashboard from "./pages/superadmin/Dashboard";
+import SuperadminUsers from "./pages/superadmin/Users";
+import SuperadminInstances from "./pages/superadmin/Instances";
+import { SuperadminRoute } from "./components/SuperadminRoute";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +34,30 @@ const App = () => (
           <Route path="/messages" element={<Messages />} />
           <Route path="/informations" element={<Informations />} />
           <Route path="/appointments" element={<Appointments />} />
+          <Route
+            path="/superadmin"
+            element={
+              <SuperadminRoute>
+                <SuperadminDashboard />
+              </SuperadminRoute>
+            }
+          />
+          <Route
+            path="/superadmin/users"
+            element={
+              <SuperadminRoute>
+                <SuperadminUsers />
+              </SuperadminRoute>
+            }
+          />
+          <Route
+            path="/superadmin/instances"
+            element={
+              <SuperadminRoute>
+                <SuperadminInstances />
+              </SuperadminRoute>
+            }
+          />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
