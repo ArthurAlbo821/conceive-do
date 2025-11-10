@@ -1,7 +1,8 @@
-import { MessageSquare, Home, LogOut, FileText, Calendar, Trash2 } from "lucide-react";
+import { MessageSquare, Home, LogOut, FileText, Calendar, Trash2, Shield } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useCurrentProfile } from "@/hooks/useCurrentProfile";
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +18,7 @@ import { DeleteAccountDialog } from "@/components/DeleteAccountDialog";
 export function AppSidebar() {
   const navigate = useNavigate();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const { profile } = useCurrentProfile();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -62,6 +64,16 @@ export function AppSidebar() {
                   </NavLink>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {profile?.role === "superadmin" && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <NavLink to="/superadmin">
+                      <Shield className="h-4 w-4" />
+                      <span>SuperAdmin</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
