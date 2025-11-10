@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, X, FileText, Lock, Bell } from "lucide-react";
+import { Plus, X, FileText, Lock, Bell, Send } from "lucide-react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
@@ -121,7 +121,8 @@ const Informations = () => {
 
   // Field groups for each step. We trigger validation only on the currently visible fields.
   const stepFieldGroups: (keyof FormValues)[][] = [
-    ["prestations", "extras", "taboos", "tarifs"],
+    ["prestations", "taboos"],
+    ["extras", "tarifs"],
     ["adresse", "door_code", "floor", "elevator_info", "access_instructions"],
     [],
     ["notification_phone"],
@@ -144,7 +145,7 @@ const Informations = () => {
     saveInformations(formattedData);
   };
 
-  const totalSteps = 4;
+  const totalSteps = 5;
   const progressPercentage = ((currentStep + 1) / totalSteps) * 100;
 
   // Step specific validation before allowing navigation.
@@ -217,7 +218,8 @@ const Informations = () => {
                       </p>
                       <h2 className="text-xl font-semibold">
                         {[
-                          "Prestations, extras, taboos et tarifs",
+                          "Prestations et taboos",
+                          "Extras et tarifs",
                           "Adresse et informations d'accès",
                           "Disponibilités",
                           "Notifications WhatsApp",
@@ -233,14 +235,13 @@ const Informations = () => {
                   </div>
                 </div>
 
-                <div className="relative overflow-hidden min-h-[520px]">
-                  <div className="grid">
-                    {[0, 1, 2, 3].map((index) => (
-                      <div
-                        key={index}
-                        className={`absolute inset-0 transform transition-all duration-300 ease-in-out ${getStepClassName(index)}`}
-                      >
-                        <div className="space-y-6 pb-6">
+                <div className="transition-all duration-300">
+                  {[0, 1, 2, 3, 4].map((index) => (
+                    <div
+                      key={index}
+                      className={`transition-opacity duration-300 ${index === currentStep ? 'block' : 'hidden'}`}
+                    >
+                      <div className="space-y-6 pb-6">
                           {index === 0 && (
                             <>
                               {/* Prestations */}
@@ -290,6 +291,57 @@ const Informations = () => {
                                 </CardContent>
                               </Card>
 
+                              {/* Taboos */}
+                              <Card>
+                                <CardHeader>
+                                  <CardTitle>Taboos</CardTitle>
+                                  <CardDescription>
+                                    Pratiques non acceptées ({taboosArray.fields.length}/10)
+                                  </CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                  {taboosArray.fields.map((field, index) => (
+                                    <FormField
+                                      key={field.id}
+                                      control={form.control}
+                                      name={`taboos.${index}.name`}
+                                      render={({ field }) => (
+                                        <FormItem>
+                                          <div className="flex gap-2">
+                                            <FormControl>
+                                              <Input placeholder="Ex: Pratique non acceptée" {...field} />
+                                            </FormControl>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() => taboosArray.remove(index)}
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      )}
+                                    />
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => taboosArray.append({ id: crypto.randomUUID(), name: "" })}
+                                    disabled={taboosArray.fields.length >= 10}
+                                  >
+                                    <Plus className="h-4 w-4 mr-2" />
+                                    Ajouter un taboo
+                                  </Button>
+                                </CardContent>
+                              </Card>
+                            </>
+                          )}
+
+                          {index === 1 && (
+                            <>
                               {/* Extras */}
                               <Card>
                                 <CardHeader>
@@ -348,53 +400,6 @@ const Informations = () => {
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
                                     Ajouter un extra
-                                  </Button>
-                                </CardContent>
-                              </Card>
-
-                              {/* Taboos */}
-                              <Card>
-                                <CardHeader>
-                                  <CardTitle>Taboos</CardTitle>
-                                  <CardDescription>
-                                    Pratiques non acceptées ({taboosArray.fields.length}/10)
-                                  </CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                  {taboosArray.fields.map((field, index) => (
-                                    <FormField
-                                      key={field.id}
-                                      control={form.control}
-                                      name={`taboos.${index}.name`}
-                                      render={({ field }) => (
-                                        <FormItem>
-                                          <div className="flex gap-2">
-                                            <FormControl>
-                                              <Input placeholder="Ex: Pratique non acceptée" {...field} />
-                                            </FormControl>
-                                            <Button
-                                              type="button"
-                                              variant="ghost"
-                                              size="icon"
-                                              onClick={() => taboosArray.remove(index)}
-                                            >
-                                              <X className="h-4 w-4" />
-                                            </Button>
-                                          </div>
-                                          <FormMessage />
-                                        </FormItem>
-                                      )}
-                                    />
-                                  ))}
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => taboosArray.append({ id: crypto.randomUUID(), name: "" })}
-                                    disabled={taboosArray.fields.length >= 10}
-                                  >
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Ajouter un taboo
                                   </Button>
                                 </CardContent>
                               </Card>
@@ -462,30 +467,66 @@ const Informations = () => {
                             </>
                           )}
 
-                          {index === 1 && (
+                          {index === 2 && (
                             <>
                               {/* Adresse */}
                               <Card>
                                 <CardHeader>
                                   <CardTitle>Adresse</CardTitle>
-                                  <CardDescription>Votre adresse professionnelle</CardDescription>
                                 </CardHeader>
                                 <CardContent>
                                   <FormField
                                     control={form.control}
                                     name="adresse"
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormControl>
-                                          <Textarea
-                                            placeholder="Entrez votre adresse complète"
-                                            className="min-h-[100px]"
-                                            {...field}
-                                          />
-                                        </FormControl>
-                                        <FormMessage />
-                                      </FormItem>
-                                    )}
+                                    render={({ field }) => {
+                                      // Split the address value into 3 parts: street, postal code, city
+                                      // Format stored in DB: "street, postal_code, city"
+                                      const parts = (field.value || "").split(", ");
+                                      const street = parts[0] || "";
+                                      const postalCode = parts[1] || "";
+                                      const city = parts[2] || "";
+
+                                      return (
+                                        <FormItem>
+                                          <div className="flex gap-2">
+                                            <FormControl>
+                                              <Input
+                                                placeholder="Rue et numéro"
+                                                value={street}
+                                                onChange={(e) => {
+                                                  const newValue = `${e.target.value}, ${postalCode}, ${city}`;
+                                                  field.onChange(newValue);
+                                                }}
+                                                className="flex-1"
+                                              />
+                                            </FormControl>
+                                            <FormControl>
+                                              <Input
+                                                placeholder="Code postal"
+                                                value={postalCode}
+                                                onChange={(e) => {
+                                                  const newValue = `${street}, ${e.target.value}, ${city}`;
+                                                  field.onChange(newValue);
+                                                }}
+                                                className="w-32"
+                                              />
+                                            </FormControl>
+                                            <FormControl>
+                                              <Input
+                                                placeholder="Ville"
+                                                value={city}
+                                                onChange={(e) => {
+                                                  const newValue = `${street}, ${postalCode}, ${e.target.value}`;
+                                                  field.onChange(newValue);
+                                                }}
+                                                className="w-40"
+                                              />
+                                            </FormControl>
+                                          </div>
+                                          <FormMessage />
+                                        </FormItem>
+                                      );
+                                    }}
                                   />
                                 </CardContent>
                               </Card>
@@ -497,9 +538,6 @@ const Informations = () => {
                                     <Lock className="h-5 w-5 text-orange-600" />
                                     <CardTitle className="text-orange-900">Informations d'Accès</CardTitle>
                                   </div>
-                                  <CardDescription className="text-orange-700">
-                                    Ces informations sensibles sont envoyées UNIQUEMENT aux clients avec rendez-vous confirmé aujourd'hui, et seulement après que vous ayez validé être prêt(e) à les recevoir.
-                                  </CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                   <FormField
@@ -569,14 +607,23 @@ const Informations = () => {
 
                                   <div className="bg-orange-100 border border-orange-300 rounded-md p-3 text-sm text-orange-800">
                                     <p className="font-semibold mb-1">Sécurité :</p>
-                                    <p>Ces informations ne sont JAMAIS utilisées dans la prise de rendez-vous. Elles seront envoyées uniquement lorsque vous cliquerez sur "Prêt à Recevoir" dans la section Rendez-vous.</p>
+                                    <p className="mb-3">Ces informations ne sont JAMAIS utilisées dans la prise de rendez-vous. Elles seront envoyées uniquement lorsque vous cliquerez sur ce bouton dans la section Rendez-vous :</p>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      disabled
+                                      className="bg-blue-600 hover:bg-blue-700 text-white cursor-default opacity-100"
+                                    >
+                                      <Send className="h-3 w-3 mr-1" />
+                                      Prêt à Recevoir
+                                    </Button>
                                   </div>
                                 </CardContent>
                               </Card>
                             </>
                           )}
 
-                          {index === 2 && (
+                          {index === 3 && (
                             <Card>
                               <CardHeader>
                                 <CardTitle>Disponibilités</CardTitle>
@@ -591,7 +638,7 @@ const Informations = () => {
                             </Card>
                           )}
 
-                          {index === 3 && (
+                          {index === 4 && (
                             <Card className="border-blue-200 bg-blue-50/50">
                               <CardHeader>
                                 <div className="flex items-center gap-2">
@@ -634,9 +681,8 @@ const Informations = () => {
                             </Card>
                           )}
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="flex items-center justify-between pt-4">
