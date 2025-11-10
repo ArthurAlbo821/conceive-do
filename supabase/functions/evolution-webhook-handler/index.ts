@@ -6,6 +6,7 @@ import {
   validateWebhookPayload,
 } from "../_shared/webhook-security.ts";
 import { normalizePhoneNumber } from "../_shared/normalize-phone.ts";
+import { storeMessageInSupermemory } from "../_shared/supermemory.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -714,6 +715,22 @@ Deno.serve(async (req) => {
         console.error("[webhook] Error storing message:", msgError);
       } else {
         console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
+        try {
+          await storeMessageInSupermemory({
+            userId: instance.user_id,
+            conversationId,
+            role: fromMe ? "assistant" : "user",
+            content: messageText,
+            timestamp: messageTimestamp,
+            metadata: {
+              message_id: key.id,
+              direction: fromMe ? "outgoing" : "incoming",
+              source: "evolution-webhook"
+            }
+          });
+        } catch (supermemoryError) {
+          console.warn("[webhook] Failed to sync message with Supermemory:", supermemoryError);
+        }
       }
 
       // Trigger AI auto-reply if enabled for this conversation and message is incoming

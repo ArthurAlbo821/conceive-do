@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
+import { storeMessageInSupermemory } from '../_shared/supermemory.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -149,6 +150,7 @@ Deno.serve(async (req) => {
     console.log('[send-message] Evolution response:', responseData);
 
     // Stocker le message dans la DB
+    const sentAt = new Date().toISOString();
     const { error: msgError } = await supabase
       .from('messages')
       .insert({
@@ -159,12 +161,28 @@ Deno.serve(async (req) => {
         direction: 'outgoing',
         content: message,
         status: 'sent',
-        timestamp: new Date().toISOString(),
+        timestamp: sentAt,
       });
 
     if (msgError) {
       console.error('[send-message] Error storing message:', msgError);
       throw msgError;
+    }
+
+    try {
+      await storeMessageInSupermemory({
+        userId,
+        conversationId: conversation.id,
+        role: 'assistant',
+        content: message,
+        timestamp: sentAt,
+        metadata: {
+          source: 'send-whatsapp-message',
+          evolution_message_id: responseData?.key?.id ?? null,
+        },
+      });
+    } catch (supermemoryError) {
+      console.warn('[send-message] Failed to sync message with Supermemory:', supermemoryError);
     }
 
     // Mettre à jour la conversation

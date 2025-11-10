@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
 import Fuse from 'https://esm.sh/fuse.js@7.0.0';
 import * as chrono from 'https://esm.sh/chrono-node@2.9.0';
 import { normalizePhoneNumber, arePhoneNumbersEqual } from '../_shared/normalize-phone.ts';
+import { fetchSupermemoryContext, isSupermemoryEnabled } from '../_shared/supermemory.ts';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type'
@@ -423,31 +424,73 @@ Deno.serve(async (req)=>{
       upcoming_appointments_count: appointments?.length || 0,
       date_range: `${today} to ${nextWeek}`
     });
-    // Get last 20 messages from conversation
-    const { data: messages, error: msgError } = await supabase.from('messages').select('direction, content, timestamp').eq('conversation_id', conversation_id).order('timestamp', {
-      ascending: false
-    }).limit(20);
-    if (msgError) {
-      console.error('[ai-auto-reply] Error fetching messages:', msgError);
-      // Log erreur de récupération des messages
-      await logAIEvent(supabase, user_id, conversation_id, 'error_occurred', 'Erreur lors de la récupération de l\'historique des messages', {
-        error_type: 'database_fetch_failed',
-        table: 'messages',
-        error_details: msgError,
-        recovery_action: 'request_aborted'
-      });
-      return new Response(JSON.stringify({
-        error: 'Failed to fetch messages'
-      }), {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json'
+    let orderedMessages: { direction: string; content: string; timestamp?: string | null }[] = [];
+    let conversationContextSource: 'supermemory' | 'database' | 'none' = 'none';
+    let conversationContextSummary: string | null = null;
+
+    if (isSupermemoryEnabled()) {
+      try {
+        const supermemoryContext = await fetchSupermemoryContext({
+          userId: user_id,
+          conversationId: conversation_id,
+          limit: 20
+        });
+
+        if (supermemoryContext && supermemoryContext.messages?.length) {
+          orderedMessages = supermemoryContext.messages.map((msg)=>({
+            direction: msg.role === 'assistant' ? 'outgoing' : 'incoming',
+            content: msg.content,
+            timestamp: msg.timestamp ?? null
+          }));
+          conversationContextSource = 'supermemory';
+          conversationContextSummary = supermemoryContext.summary ?? null;
+
+          await logAIEvent(supabase, user_id, conversation_id, 'supermemory_context_loaded', 'Contexte conversation récupéré depuis Supermemory', {
+            messages_count: orderedMessages.length,
+            has_summary: Boolean(conversationContextSummary),
+            summary_preview: conversationContextSummary ? conversationContextSummary.substring(0, 200) : null
+          });
         }
+      } catch (supermemoryError) {
+        console.warn('[ai-auto-reply] Failed to fetch context from Supermemory:', supermemoryError);
+      }
+    }
+
+    if (orderedMessages.length === 0) {
+      const { data: messages, error: msgError } = await supabase.from('messages').select('direction, content, timestamp').eq('conversation_id', conversation_id).order('timestamp', {
+        ascending: false
+      }).limit(20);
+      if (msgError) {
+        console.error('[ai-auto-reply] Error fetching messages:', msgError);
+        // Log erreur de récupération des messages
+        await logAIEvent(supabase, user_id, conversation_id, 'error_occurred', 'Erreur lors de la récupération de l\'historique des messages', {
+          error_type: 'database_fetch_failed',
+          table: 'messages',
+          error_details: msgError,
+          recovery_action: 'request_aborted'
+        });
+        return new Response(JSON.stringify({
+          error: 'Failed to fetch messages'
+        }), {
+          status: 500,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
+        });
+      }
+      const fallbackMessages = messages || [];
+      orderedMessages = fallbackMessages.reverse();
+      conversationContextSource = fallbackMessages.length > 0 ? 'database' : 'none';
+    }
+
+    if (orderedMessages.length === 0) {
+      orderedMessages.push({
+        direction: 'incoming',
+        content: enrichedMessage,
+        timestamp: new Date().toISOString()
       });
     }
-    // Reverse to have chronological order (oldest first)
-    const orderedMessages = messages.reverse();
     // Build context from user informations
     const prestations = Array.isArray(userInfo.prestations) ? userInfo.prestations.map((p)=>p.name || p).join(', ') : 'Non spécifié';
     const extras = Array.isArray(userInfo.extras) ? userInfo.extras.map((e)=>`${e.name || e} (${e.price || 'prix non spécifié'}€)`).join(', ') : 'Aucun';
@@ -884,7 +927,14 @@ CONTEXTE : 20 derniers messages dispo.`;
         extra_prices: extraToPriceMap
       },
       current_datetime: currentDateTime,
-      conversation_history_length: orderedMessages.length
+      conversation_history_length: orderedMessages.length,
+      conversation_history_source: conversationContextSource,
+      conversation_summary: conversationContextSummary,
+      conversation_history_preview: orderedMessages.slice(-5).map((msg)=>({
+        role: msg.direction === 'incoming' ? 'user' : 'assistant',
+        preview: msg.content.substring(0, 160),
+        timestamp: msg.timestamp ?? undefined
+      }))
     });
     // Build messages for OpenAI
     const conversationHistory = orderedMessages.map((msg, index)=>{
@@ -895,6 +945,10 @@ CONTEXTE : 20 derniers messages dispo.`;
         content: isLastMessage ? enrichedMessage : msg.content
       };
     });
+    const conversationHistoryForLogging = conversationHistory.map((msg)=>({
+      role: msg.role,
+      preview: typeof msg.content === 'string' ? msg.content.substring(0, 160) : '[non-text content]'
+    }));
     // Call OpenAI API
     const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
     if (!openaiApiKey) {
@@ -964,7 +1018,8 @@ CONTEXTE : 20 derniers messages dispo.`;
       temperature: 0.7,
       max_tokens: 500,
       messages_count: conversationHistory.length,
-      conversation_history: conversationHistory,
+      conversation_history_source: conversationContextSource,
+      conversation_history_preview: conversationHistoryForLogging,
       has_tools: !hasConfirmedAppointmentToday,
       tool_name: hasConfirmedAppointmentToday ? null : 'create_appointment_summary',
       ai_mode: hasConfirmedAppointmentToday ? 'WAITING' : 'WORKFLOW',

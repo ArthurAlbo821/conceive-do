@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { storeMessageInSupermemory } from "../_shared/supermemory.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -269,6 +270,8 @@ serve(async (req) => {
         const messageId =
           evolutionData.key?.id || `msg_${Date.now()}_${Math.random()}`;
 
+        const sentAt = new Date().toISOString();
+
         await supabaseClient.from("messages").insert({
           conversation_id: conversation.id,
           instance_id: instance.id,
@@ -278,8 +281,28 @@ serve(async (req) => {
           direction: "outgoing",
           content: randomMessage,
           status: "sent",
-          timestamp: new Date().toISOString(),
+          timestamp: sentAt,
         });
+
+        try {
+          await storeMessageInSupermemory({
+            userId: appointment.user_id,
+            conversationId: conversation.id,
+            role: "assistant",
+            content: randomMessage,
+            timestamp: sentAt,
+            metadata: {
+              source: "check-late-clients",
+              appointment_id: appointment.id,
+              evolution_message_id: messageId,
+            },
+          });
+        } catch (supermemoryError) {
+          console.warn(
+            "[check-late-clients] Failed to sync reminder with Supermemory:",
+            supermemoryError,
+          );
+        }
 
         // Update conversation's last message
         await supabaseClient
