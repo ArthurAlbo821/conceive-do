@@ -32,6 +32,22 @@ const envSchema = z.object({
     .min(1, 'OPENAI_API_KEY is required')
     .startsWith('sk-', 'OPENAI_API_KEY must start with "sk-"'),
 
+  // Optional Supermemory configuration
+  SUPERMEMORY_API_KEY: z
+    .string()
+    .startsWith('sm_', 'SUPERMEMORY_API_KEY must start with "sm_"')
+    .optional(),
+
+  SUPERMEMORY_WORKSPACE_ID: z
+    .string()
+    .startsWith('workspace_', 'SUPERMEMORY_WORKSPACE_ID must start with "workspace_"')
+    .optional(),
+
+  SUPERMEMORY_API_URL: z
+    .string()
+    .url('SUPERMEMORY_API_URL must be a valid URL if provided')
+    .optional(),
+
   // Optional: Duckling API for temporal parsing
   DUCKLING_API_URL: z
     .string()
@@ -64,6 +80,9 @@ export function validateEnv(): Env {
       SUPABASE_SERVICE_ROLE_KEY: Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
       JWT_SECRET: Deno.env.get('JWT_SECRET'),
       OPENAI_API_KEY: Deno.env.get('OPENAI_API_KEY'),
+      SUPERMEMORY_API_KEY: Deno.env.get('SUPERMEMORY_API_KEY'),
+      SUPERMEMORY_WORKSPACE_ID: Deno.env.get('SUPERMEMORY_WORKSPACE_ID'),
+      SUPERMEMORY_API_URL: Deno.env.get('SUPERMEMORY_API_URL'),
       DUCKLING_API_URL: Deno.env.get('DUCKLING_API_URL'),
     });
 
@@ -83,7 +102,7 @@ export function validateEnv(): Env {
       console.error('');
       console.error('[env] 💡 Please check your environment variables and try again.');
       console.error('[env] 📝 Required variables: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, JWT_SECRET, OPENAI_API_KEY');
-      console.error('[env] 📝 Optional variables: DUCKLING_API_URL');
+      console.error('[env] 📝 Optional variables: DUCKLING_API_URL, SUPERMEMORY_API_KEY, SUPERMEMORY_WORKSPACE_ID, SUPERMEMORY_API_URL');
 
       // Throw error to let caller handle it
       throw new Error('Environment variable validation failed. See console output above for details.');
