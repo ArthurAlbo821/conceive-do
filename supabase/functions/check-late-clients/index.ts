@@ -268,7 +268,7 @@ serve(async (req) => {
 
         // Store the message in the database
         const messageId =
-          evolutionData.key?.id || `msg_${Date.now()}_${Math.random()}`;
+          evolutionData.key?.id || `late_client_${crypto.randomUUID()}`;
 
         const syncResult = await syncMessageToSupermemory({
           supabase: supabaseClient,

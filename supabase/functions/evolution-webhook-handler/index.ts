@@ -699,7 +699,7 @@ Deno.serve(async (req) => {
         console.warn("[webhook] instancePhone is empty after fallback, using normalizedKey");
       }
 
-      const generatedMessageId = key?.id || `evo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const generatedMessageId = key?.id || `evo_${crypto.randomUUID()}`;
 
       const syncResult = await syncMessageToSupermemory({
         supabase,

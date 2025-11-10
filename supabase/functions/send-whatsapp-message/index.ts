@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
     console.log('[send-message] Evolution response:', responseData);
 
     const messageId =
-      responseData?.key?.id || `manual_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      responseData?.key?.id || `manual_${crypto.randomUUID()}`;
 
     const ownerUserId = conversation.user_id || userId;
 
