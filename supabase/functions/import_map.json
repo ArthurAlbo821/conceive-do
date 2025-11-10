@@ -4,6 +4,7 @@
     "fuse.js": "https://esm.sh/fuse.js@7.0.0",
     "date-fns": "https://esm.sh/date-fns@3.0.0",
     "date-fns-tz": "https://esm.sh/date-fns-tz@2.0.0",
-    "chrono-node": "https://esm.sh/chrono-node@2.9.0"
+    "chrono-node": "https://esm.sh/chrono-node@2.9.0",
+    "zod": "https://esm.sh/zod@3.22.4"
   }
 }

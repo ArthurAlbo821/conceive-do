@@ -20,9 +20,9 @@ interface NotificationResponse {
   skipped?: boolean;
 }
 
-// Helper to format price with euro symbol
+// Helper to format price with Swiss Franc (CHF)
 function formatPrice(price: number): string {
-  return `${price}€`;
+  return `CHF ${price}`;
 }
 
 // Helper to format date in French
@@ -224,15 +224,9 @@ serve(async (req) => {
 
     switch (notification_type) {
       case "new_appointment": {
-        // Parse appointment details from notes field
-        // Notes field structure is just a string like "Extras: extra1, extra2"
-        // We need to calculate prices from scratch or use a simpler approach
-
         const duration = appointment.duration_minutes ||
           calculateDuration(appointment.start_time, appointment.end_time);
 
-        // Simple message without detailed price breakdown
-        // (We don't have access to tarif/extra mappings in this function)
         messageText = `🤖 Nouveau RDV
 
 👤 Client : ${appointment.contact_name} (${appointment.contact_phone})
@@ -241,9 +235,25 @@ serve(async (req) => {
 
 📋 Service : ${appointment.service || "Prestation"}`;
 
-        // Add notes if available
-        if (appointment.notes) {
-          messageText += `\n${appointment.notes}`;
+        // Display structured extras with prices if available
+        if (appointment.selected_extras && Array.isArray(appointment.selected_extras) && appointment.selected_extras.length > 0) {
+          messageText += `\n\n💎 Extras :`;
+          appointment.selected_extras.forEach((extra: any) => {
+            messageText += `\n• ${extra.name} (${formatPrice(extra.price)})`;
+          });
+        }
+
+        // Display price breakdown if available
+        if (appointment.total_price !== null && appointment.total_price !== undefined) {
+          messageText += `\n\n💰 Prix total : ${formatPrice(appointment.total_price)}`;
+
+          if (appointment.base_price !== null && appointment.base_price !== undefined) {
+            messageText += `\n   (Base: ${formatPrice(appointment.base_price)}`;
+            if (appointment.extras_total && appointment.extras_total > 0) {
+              messageText += ` + Extras: ${formatPrice(appointment.extras_total)}`;
+            }
+            messageText += `)`;
+          }
         }
 
         break;

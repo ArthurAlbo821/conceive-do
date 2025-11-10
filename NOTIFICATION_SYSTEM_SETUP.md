@@ -75,12 +75,12 @@ supabase functions deploy send-access-info
 👤 Client : Jean Dupont (+33612345678)
 📅 Date : Lundi 3 novembre 2025
 🕐 Heure : 14:00 - 15:30 (90min)
-💰 Prix : 250€
+💰 Prix : CHF 250
 
 📋 Services :
-• Prestation 90min (200€)
-• Extra 1 (30€)
-• Extra 2 (20€)
+• Prestation 90min (CHF 200)
+• Extra 1 (CHF 30)
+• Extra 2 (CHF 20)
 ```
 
 ### Test 2 : Client arrivé

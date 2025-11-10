@@ -5,9 +5,27 @@ import type { Database } from "./types";
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+// Enhanced validation with detailed logging
+console.log('🔍 Supabase Client Initialization');
+console.log('Environment:', import.meta.env.MODE);
+console.log('VITE_SUPABASE_URL:', SUPABASE_URL ? `${SUPABASE_URL.substring(0, 35)}...` : '❌ UNDEFINED');
+console.log('VITE_SUPABASE_PUBLISHABLE_KEY:', SUPABASE_PUBLISHABLE_KEY ? `${SUPABASE_PUBLISHABLE_KEY.substring(0, 35)}...` : '❌ UNDEFINED');
+
 // Validation des variables d'environnement
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-  throw new Error("Missing Supabase environment variables. Please check your .env file.");
+  const errorMsg = `Missing Supabase environment variables.
+
+  VITE_SUPABASE_URL: ${SUPABASE_URL ? 'Present' : '❌ MISSING'}
+  VITE_SUPABASE_PUBLISHABLE_KEY: ${SUPABASE_PUBLISHABLE_KEY ? 'Present' : '❌ MISSING'}
+
+  If you're seeing this in production:
+  1. Check that environment variables are set in your deployment platform (Vercel/Netlify)
+  2. Ensure variables are prefixed with VITE_
+  3. Redeploy with cache cleared
+  4. Check build logs for environment variable confirmation`;
+
+  console.error('❌ Supabase Client Error:', errorMsg);
+  throw new Error(errorMsg);
 }
 
 // Import the supabase client like this:

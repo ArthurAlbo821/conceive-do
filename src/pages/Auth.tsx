@@ -63,11 +63,14 @@ const Auth = () => {
   const handleSignUp = async (data: SignUpFormData) => {
     setLoading(true);
     try {
+      // Use VITE_SITE_URL if defined, otherwise fallback to window.location.origin
+      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+
       const { error } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
         options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`,
+          emailRedirectTo: `${siteUrl}/dashboard`,
           data: {
             full_name: data.fullName,
           },
