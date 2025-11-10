@@ -10,7 +10,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Navbar } from "@/components/Navbar";
 import { useSuperadminStats } from "@/hooks/useSuperadminStats";
-import type { AiLogEntry } from "@/integrations/supabase/superadmin";
+import type { SystemErrorEntry } from "@/integrations/supabase/superadmin";
 
 const MetricSkeleton = () => (
   <Card>
@@ -23,11 +23,12 @@ const MetricSkeleton = () => (
   </Card>
 );
 
-const formatTimestamp = (entry: AiLogEntry) => {
+const formatTimestamp = (entry: SystemErrorEntry) => {
   try {
+    if (!entry.created_at) return "Date inconnue";
     return new Date(entry.created_at).toLocaleString();
   } catch (error) {
-    return entry.created_at;
+    return entry.created_at ?? "Date inconnue";
   }
 };
 
@@ -118,9 +119,9 @@ const SuperadminDashboard = () => {
                       )}
                       {data.recentErrors.map((entry) => (
                         <div key={entry.id} className="space-y-1 border-b pb-2 last:border-b-0 last:pb-0">
-                          <p className="text-sm font-medium">{entry.event_type}</p>
-                          {entry.message && (
-                            <p className="text-xs text-muted-foreground">{entry.message}</p>
+                          <p className="text-sm font-medium">{entry.status ?? "Erreur"}</p>
+                          {entry.error_message && (
+                            <p className="text-xs text-muted-foreground">{entry.error_message}</p>
                           )}
                           <p className="text-xs text-muted-foreground">{formatTimestamp(entry)}</p>
                         </div>

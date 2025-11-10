@@ -728,8 +728,7 @@ Deno.serve(async (req) => {
         console.log("[webhook] AI auto-reply enabled for this conversation, triggering...");
 
         // Appel asynchrone (fire-and-forget)
-        supabase.functions
-          .invoke("ai-auto-reply", {
+        supabase.functions.invoke("ai-auto-reply", {
             body: {
               conversation_id: conversationId,
               instance_id: instance.id,

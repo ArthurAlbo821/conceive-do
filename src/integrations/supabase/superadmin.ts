@@ -12,7 +12,7 @@ export interface SuperadminStats {
   messagesLast24h: number;
   aiAutoRepliesLast24h: number;
   appointmentsToday: number;
-  recentErrors: AiLogEntry[];
+  recentErrors: SystemErrorEntry[];
 }
 
 export interface AiLogEntry {
@@ -20,6 +20,15 @@ export interface AiLogEntry {
   created_at: string;
   event_type: string;
   message: string | null;
+  user_id: string;
+}
+
+// System error entries from evolution_instance_creation_queue
+export interface SystemErrorEntry {
+  id: string;
+  created_at: string | null;
+  error_message: string | null;
+  status: string | null;
   user_id: string;
 }
 
@@ -86,8 +95,9 @@ export const fetchSuperadminStats = async (): Promise<SuperadminStats> => {
         .gte("appointment_date", startOfDay.toISOString().split("T")[0])
         .lt("appointment_date", new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000).toISOString().split("T")[0]),
       supabase
-        .from("ai_logs")
-        .select("id, created_at, event_type, message, user_id")
+        .from("evolution_instance_creation_queue")
+        .select("id, created_at, error_message, status, user_id")
+        .not("error_message", "is", null)
         .order("created_at", { ascending: false })
         .limit(5),
     ]);
@@ -109,7 +119,7 @@ export const fetchSuperadminStats = async (): Promise<SuperadminStats> => {
     messagesLast24h: messagesRes.count ?? 0,
     aiAutoRepliesLast24h: aiRepliesRes.count ?? 0,
     appointmentsToday: appointmentsRes.count ?? 0,
-    recentErrors: (recentErrorsRes.data as AiLogEntry[] | null) ?? [],
+    recentErrors: (recentErrorsRes.data as SystemErrorEntry[] | null) ?? [],
   };
 };
 

@@ -1,0 +1,10 @@
+auth et reste password utilise: import { supabase } from "@/integrations/supabase/client";
+
+J'ai utilisé "invoke" comme mot clé de recherche
+Ai-auto-reply 
+delete-account
+create-evolution-instance
+check-instance-status
+send-whatsapp-message
+send-access-info
+send-provider-notification
