@@ -1,8 +1,11 @@
+// src/components/QRCodeDisplay.tsx
+// Displays WhatsApp QR code with countdown timer for connection
+// Simplified: backend cron handles auto-refresh, this only shows timer + manual refresh button
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Clock } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface QRCodeDisplayProps {
   qrCode: string;
@@ -20,35 +23,15 @@ export const QRCodeDisplay = ({
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const QR_EXPIRATION_SECONDS = 60; // 1 minute
 
-  // Gestion d'un cycle local pour redémarrer visuellement le timer à 2:00 dès qu'on atteint 0:00
-  const autoRefreshFiredRef = useRef(false);
-  const localCycleStartRef = useRef<number | null>(null);
-  const lastQrRef = useRef<string | null>(null);
-  const retryTimeoutRef = useRef<number | null>(null);
-  const retryCountRef = useRef(0);
-
-  // Synchroniser la dernière date connue et réinitialiser les états liés aux retries
-  useEffect(() => {
-    lastQrRef.current = lastQrUpdate || null;
-    autoRefreshFiredRef.current = false;
-    retryCountRef.current = 0;
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
-    localCycleStartRef.current = null;
-  }, [lastQrUpdate]);
-
+  // Simple elapsed time calculation from last QR update
+  // Backend cron refreshes QR every 60s automatically
   useEffect(() => {
     if (!lastQrUpdate) return;
 
-    // Reset du compteur quand le QR est rafraîchi côté backend
-    setElapsedSeconds(0);
-
     const updateElapsed = () => {
-      const base = localCycleStartRef.current ?? new Date(lastQrUpdate).getTime();
       const now = Date.now();
-      const elapsed = Math.floor((now - base) / 1000);
+      const lastUpdate = new Date(lastQrUpdate).getTime();
+      const elapsed = Math.floor((now - lastUpdate) / 1000);
       setElapsedSeconds(Math.max(0, elapsed));
     };
 
@@ -61,42 +44,6 @@ export const QRCodeDisplay = ({
   const remainingSeconds = Math.max(0, QR_EXPIRATION_SECONDS - elapsedSeconds);
   const minutes = Math.floor(remainingSeconds / 60);
   const seconds = remainingSeconds % 60;
-
-  // Auto-refresh lorsque le timer atteint 0, avec redémarrage visuel immédiat et petits retries silencieux
-  useEffect(() => {
-    if (!lastQrUpdate) return;
-    if (remainingSeconds === 0 && !isRefreshing && !autoRefreshFiredRef.current) {
-      autoRefreshFiredRef.current = true;
-
-      // Redémarrer visuellement à 2:00 sans attendre la propagation côté backend
-      localCycleStartRef.current = Date.now();
-
-      // Mémorise la dernière valeur connue pour détecter un changement de lastQrUpdate
-      const previous = lastQrRef.current;
-      retryCountRef.current = 0;
-
-      const scheduleRetry = () => {
-        // Si lastQrUpdate a changé entre-temps, on arrête les retries
-        if (lastQrRef.current !== previous) return;
-        if (retryCountRef.current >= 3) return;
-        retryCountRef.current += 1;
-        onRefresh();
-        retryTimeoutRef.current = window.setTimeout(scheduleRetry, 5000);
-      };
-
-      onRefresh();
-      retryTimeoutRef.current = window.setTimeout(scheduleRetry, 5000);
-    }
-  }, [remainingSeconds, lastQrUpdate, isRefreshing, onRefresh]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
-    };
-  }, []);
 
   return (
     <Card className="w-full max-w-md mx-auto">
