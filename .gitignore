@@ -35,3 +35,4 @@ dist-ssr
 
 # Supabase temporary files
 supabase/.temp/
+./prompt 
