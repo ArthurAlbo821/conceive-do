@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-const WEBHOOK_EVENTS = ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'SEND_MESSAGE'];
+const WEBHOOK_EVENTS = ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'];
 const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 async function fetchWithRetry(url: string, options: RequestInit, config: { retries?: number; timeoutMs?: number } = {}): Promise<Response> {
   const { retries = 1, timeoutMs = 10000 } = config;

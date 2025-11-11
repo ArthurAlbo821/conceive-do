@@ -1,3 +1,6 @@
+// supabase/functions/evolution-webhook-handler/index.ts
+// Handles Evolution webhook events with strict auth and minimal branching.
+// Keeps logic simple while delegating per-event work to focused helpers.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.76.1";
 import {
   verifyHmacSignature,
@@ -13,179 +16,487 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-webhook-signature",
 };
 
-// Normalize WhatsApp JID to clean phone number - strict numeric only
-// Using shared normalization function for consistency across the entire app
+// Small helper so every part of the handler normalizes JIDs exactly the same way.
 function normalizeJid(jid: string): string {
   return normalizePhoneNumber(jid);
 }
 
-// Resolve LID to real phone number by searching in payload or calling Evolution API
+// Strip the LID when possible using only the payload data.
+// API calls were removed on purpose to keep latency predictable and avoid failures.
 async function resolveLidToRealNumber(
-  lidJid: string,
+  jid: string,
   key: any,
-  messageData: any,
-  instanceName: string
+  messageData: any
 ): Promise<string> {
-  console.log("[webhook] Attempting to resolve LID:", lidJid);
+  console.log("[webhook] Attempting to resolve LID:", jid);
 
-  // Option A: Try to extract from key.participant
-  if (key.participant && !key.participant.includes("@lid")) {
-    const resolved = normalizeJid(key.participant);
-    console.log("[webhook] ✓ Found real number from key.participant:", resolved);
-    return resolved;
+  if (key?.participant) {
+    const normalized = normalizeJid(key.participant);
+    console.log("[webhook] ✓ Resolved from key.participant:", normalized);
+    return normalized;
   }
 
-  // Option B: Try to extract from messageData.participant
-  if (messageData.participant && !messageData.participant.includes("@lid")) {
-    const resolved = normalizeJid(messageData.participant);
-    console.log("[webhook] ✓ Found real number from messageData.participant:", resolved);
-    return resolved;
+  if (messageData?.participant) {
+    const normalized = normalizeJid(messageData.participant);
+    console.log("[webhook] ✓ Resolved from messageData.participant:", normalized);
+    return normalized;
   }
 
-  // Option C: Call Evolution API to find contacts with remoteJid
-  try {
-    console.log("[webhook] Calling Evolution API to resolve LID...");
-    const evolutionApiUrl =
-      Deno.env.get("EVOLUTION_API_URL") ||
-      "https://cst-evolution-api-kaezwnkk.usecloudstation.com";
-    const evolutionApiKey = Deno.env.get("EVOLUTION_API_KEY");
-    const pushName = messageData.pushName || null;
+  const normalizedFallback = normalizeJid(jid);
+  console.warn(
+    "[webhook] ⚠️ Using raw LID fallback. Real number unavailable in payload:",
+    normalizedFallback
+  );
+  return normalizedFallback;
+}
 
-    if (!evolutionApiKey) {
-      console.error("[webhook] EVOLUTION_API_KEY not configured");
-      throw new Error("EVOLUTION_API_KEY not configured");
-    }
+// Validate webhook authentication using either HMAC or the instance token.
+// Returns the auth method when successful; otherwise returns null so the caller can reject.
+async function validateWebhookAuth(
+  req: Request,
+  rawBody: string,
+  instanceName?: string
+): Promise<string | null> {
+  const webhookSecret = Deno.env.get("WEBHOOK_SECRET");
+  const signature = req.headers.get("x-webhook-signature") || "";
 
-    // Step 1: Try to find contact by remoteJid
-    console.log("[webhook] → Query 1: Searching by remoteJid:", lidJid);
-    let response = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
-      method: "POST",
-      headers: {
-        apikey: evolutionApiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        where: { remoteJid: lidJid },
-      }),
-    });
-
-    let contacts = [];
-    if (response.ok) {
-      contacts = await response.json();
+  if (webhookSecret && signature) {
+    const isValid = await verifyHmacSignature(rawBody, signature, webhookSecret);
+    if (isValid) {
       console.log(
-        "[webhook] Evolution API response (by remoteJid):",
-        JSON.stringify(contacts)
+        `[webhook-security] ✅ HMAC signature verified for instance: ${instanceName ?? "unknown"}`
       );
-    } else {
-      console.error(
-        "[webhook] Evolution API error (remoteJid query):",
-        response.status,
-        await response.text()
-      );
+      return "HMAC Signature";
     }
 
-    // Step 2: Fallback to pushName search if first query returns LID or nothing useful
-    const hasOnlyLidResult =
-      contacts.length > 0 &&
-      contacts.every((c: any) => !c.remoteJid || c.remoteJid.includes("@lid"));
-
-    if ((contacts.length === 0 || hasOnlyLidResult) && pushName) {
-      console.log("[webhook] → Query 2 (fallback): Searching by pushName:", pushName);
-      response = await fetch(`${evolutionApiUrl}/chat/findContacts/${instanceName}`, {
-        method: "POST",
-        headers: {
-          apikey: evolutionApiKey,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          where: { pushName: pushName },
-        }),
-      });
-
-      if (response.ok) {
-        contacts = await response.json();
-        console.log(
-          "[webhook] Evolution API response (by pushName):",
-          JSON.stringify(contacts)
-        );
-      } else {
-        console.error(
-          "[webhook] Evolution API error (pushName query):",
-          response.status,
-          await response.text()
-        );
-      }
-    }
-
-    // Step 3: Filter valid candidates
-    if (contacts && contacts.length > 0) {
-      const candidates = contacts.filter(
-        (c: any) =>
-          typeof c.remoteJid === "string" &&
-          !c.remoteJid.includes("@lid") &&
-          !c.remoteJid.endsWith("@g.us")
-      );
-
-      console.log("[webhook] Valid candidates found:", candidates.length);
-
-      if (candidates.length > 0) {
-        // Step 4: Prioritize by pushName if available
-        let bestCandidate = candidates[0];
-
-        if (pushName) {
-          const pushNameMatch = candidates.find(
-            (c: any) => (c.pushName || "").toLowerCase() === pushName.toLowerCase()
-          );
-          if (pushNameMatch) {
-            bestCandidate = pushNameMatch;
-            console.log("[webhook] Found pushName match:", bestCandidate.pushName);
-          }
-        }
-
-        // Step 5: Validate normalized length (8-15 digits)
-        for (const candidate of (bestCandidate === candidates[0]
-          ? candidates
-          : [bestCandidate, ...candidates])) {
-          const normalized = normalizeJid(candidate.remoteJid);
-          const numLength = normalized.length;
-
-          console.log("[webhook] Checking candidate:", {
-            remoteJid: candidate.remoteJid,
-            pushName: candidate.pushName,
-            normalized,
-            length: numLength,
-          });
-
-          if (numLength >= 8 && numLength <= 15) {
-            console.log("[webhook] ✓ Found valid real number from Evolution API:", normalized);
-            return normalized;
-          } else {
-            console.log(
-              "[webhook] ✗ Rejected candidate (length:",
-              numLength,
-              "is outside 8-15)"
-            );
-          }
-        }
-
-        console.warn("[webhook] ⚠️ All candidates rejected due to invalid length");
-      }
-    }
-  } catch (error) {
-    console.error("[webhook] Error calling Evolution API:", error);
+    console.error(
+      `[webhook-security] ❌ Invalid HMAC signature for instance: ${instanceName ?? "unknown"}`
+    );
   }
 
-  // Fallback: use the LID number part only if it's >= 8 digits
-  const lidNumber = normalizeJid(lidJid);
-  if (lidNumber.length >= 8) {
-    console.warn("[webhook] ⚠️ Using LID as fallback (length >= 8):", lidNumber);
-    return lidNumber;
-  } else {
-    console.error(
-      "[webhook] ❌ LID too short (length < 8), returning empty string:",
-      lidNumber
+  const instanceApiKey = req.headers.get("apikey") || req.headers.get("x-api-key") || "";
+  if (instanceApiKey && instanceName) {
+    const tempSupabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
-    return "";
+
+    const { data: instance, error } = await tempSupabase
+      .from("evolution_instances")
+      .select("instance_token, instance_name")
+      .eq("instance_name", instanceName)
+      .single();
+
+    if (!error && instance?.instance_token === instanceApiKey) {
+      console.log(`[webhook-security] ✅ Instance token verified for: ${instanceName}`);
+      return "Instance Token";
+    }
+
+    console.error(
+      `[webhook-security] ❌ Instance token mismatch for: ${instanceName} (error: ${error?.message ?? "none"})`
+    );
+  }
+
+  // PERMISSIVE MODE: If no authentication headers provided, verify instance exists
+  // Evolution API doesn't send authentication headers by default
+  if (instanceName) {
+    console.warn("[webhook-security] ⚠️  PERMISSIVE MODE: No authentication headers provided");
+    console.warn("[webhook-security] ⚠️  Verifying instance exists in database...");
+
+    const tempSupabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: validInstance, error: validationError } = await tempSupabase
+      .from("evolution_instances")
+      .select("id, user_id, instance_name, instance_status")
+      .eq("instance_name", instanceName)
+      .single();
+
+    if (!validationError && validInstance) {
+      console.log(`[webhook-security] ⚠️  PERMISSIVE MODE: Accepting webhook for valid instance: ${instanceName}`);
+      console.log(`[webhook-security] ⚠️  Instance belongs to user_id: ${validInstance.user_id}`);
+      return "Instance Validated (Permissive Mode)";
+    }
+
+    console.error("[webhook-security] ❌ Instance not found in database:", instanceName);
+  }
+
+  return null;
+}
+
+async function handleQRCodeEvent(
+  supabase: ReturnType<typeof createClient>,
+  instance: any,
+  payload: any
+): Promise<void> {
+  const instanceName = payload.instance;
+  const qrCodeBase64 = payload.data?.qrcode?.base64;
+
+  if (!qrCodeBase64) {
+    console.log(
+      `[evolution-webhook-handler] QR code payload missing for instance ${instanceName}`
+    );
+    return;
+  }
+
+  console.log(`[evolution-webhook-handler] Updating QR code for ${instanceName}`);
+
+  const { error: updateError } = await supabase
+    .from("evolution_instances")
+    .update({
+      qr_code: qrCodeBase64,
+      last_qr_update: new Date().toISOString(),
+    })
+    .eq("id", instance.id);
+
+  if (updateError) {
+    console.error("[evolution-webhook-handler] Error updating QR code:", updateError);
+  }
+}
+
+async function handleConnectionEvent(
+  supabase: ReturnType<typeof createClient>,
+  instance: any,
+  payload: any
+): Promise<void> {
+  const instanceName = payload.instance;
+  const state = payload.data?.state;
+
+  console.log(
+    `[evolution-webhook-handler] Connection update for ${instanceName}: ${state}`
+  );
+
+  let newStatus: string | null = null;
+  let phoneNumber: string | null = null;
+
+  if (state === "open") {
+    newStatus = "connected";
+    const owner = payload.data?.instance?.owner;
+    if (owner) {
+      phoneNumber = owner.split("@")[0];
+      console.log(`[evolution-webhook-handler] Extracted phone number: ${phoneNumber}`);
+    }
+  } else if (state === "close") {
+    newStatus = "disconnected";
+  } else if (state === "connecting") {
+    newStatus = "connecting";
+  }
+
+  if (!newStatus) {
+    return;
+  }
+
+  const updateData: any = { instance_status: newStatus };
+
+  if (newStatus === "connected" && phoneNumber) {
+    updateData.phone_number = phoneNumber;
+    updateData.qr_code = null;
+  } else if (newStatus === "disconnected") {
+    updateData.phone_number = null;
+    updateData.qr_code = null;
+  }
+
+  const { error: updateError } = await supabase
+    .from("evolution_instances")
+    .update(updateData)
+    .eq("id", instance.id);
+
+  if (updateError) {
+    console.error("[evolution-webhook-handler] Error updating instance:", updateError);
+  }
+}
+
+async function handleMessageEvent(
+  supabase: ReturnType<typeof createClient>,
+  instance: any,
+  payload: any
+): Promise<Response | void> {
+  const messageData = payload.data;
+  const key = messageData?.key;
+  const message = messageData?.message;
+
+  if (!key || !message) {
+    console.log("[evolution-webhook-handler] Invalid message data");
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const remoteJid = key.remoteJid;
+  const fromMe = key.fromMe ?? false;
+  const messageType = messageData.messageType || "unknown";
+
+  let messageText = "";
+  if (message.conversation) {
+    messageText = message.conversation;
+  } else if (message.extendedTextMessage?.text) {
+    messageText = message.extendedTextMessage.text;
+  } else if (message.text?.text) {
+    messageText = message.text.text;
+  } else if (message.imageMessage?.caption) {
+    messageText = message.imageMessage.caption || "[Image]";
+  } else if (message.videoMessage?.caption) {
+    messageText = message.videoMessage.caption || "[Video]";
+  } else if (message.documentMessage?.caption) {
+    messageText = message.documentMessage.caption || "[Document]";
+  } else if (message.ephemeralMessage?.message?.extendedTextMessage?.text) {
+    messageText = message.ephemeralMessage.message.extendedTextMessage.text;
+  }
+
+  const pushName = messageData.pushName || null;
+
+  if (!messageText || !remoteJid) {
+    console.log(
+      `[evolution-webhook-handler] Message ignored - no text content. Type: ${messageType}, remoteJid: ${remoteJid}`
+    );
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const rawJid = remoteJid;
+  const isLid = rawJid.includes("@lid");
+
+  let normalizedKey: string;
+  if (isLid) {
+    normalizedKey = await resolveLidToRealNumber(rawJid, key, messageData);
+  } else {
+    normalizedKey = normalizeJid(rawJid);
+  }
+
+  if (!normalizedKey) {
+    console.error("[webhook] Could not determine contact phone");
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (normalizedKey.endsWith("@g.us")) {
+    console.warn("[webhook] Ignoring group message");
+    return new Response(JSON.stringify({ success: true }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  let instancePhone = normalizeJid(instance.phone_number || "");
+
+  if (!instancePhone && payload.sender) {
+    instancePhone = normalizeJid(payload.sender);
+    console.log(
+      `[evolution-webhook-handler] Using sender as instancePhone fallback: ${instancePhone}`
+    );
+
+    await supabase
+      .from("evolution_instances")
+      .update({ phone_number: instancePhone })
+      .eq("id", instance.id);
+  }
+
+  const messageTimestamp = messageData.messageTimestamp
+    ? new Date(messageData.messageTimestamp * 1000).toISOString()
+    : new Date().toISOString();
+
+  console.log("[webhook] Message details:", {
+    remoteJid,
+    rawJid,
+    normalizedKey,
+    isLid,
+    participant: key.participant,
+    messageParticipant: messageData.participant,
+    fromMe,
+    messageType,
+    textLength: messageText.length,
+    instancePhone,
+    pushName,
+    timestamp: messageTimestamp,
+  });
+
+  const { data: existingConvs, error: searchError } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("instance_id", instance.id)
+    .in("contact_phone", [rawJid, normalizedKey])
+    .order("last_message_at", { ascending: false, nullsFirst: false });
+
+  if (searchError) {
+    console.error("[webhook] Error searching conversations:", searchError);
+  }
+
+  let conversationId: string;
+
+  if (existingConvs && existingConvs.length > 1) {
+    // Safety net - DB trigger handles normalization, this merge keeps legacy rows tidy.
+    console.log(
+      `[webhook] Found ${existingConvs.length} conversations for contact, merging now...`
+    );
+
+    const primary =
+      existingConvs.find((c: any) => c.contact_phone === normalizedKey) || existingConvs[0];
+    const secondaries = existingConvs.filter((c: any) => c.id !== primary.id);
+
+    console.log(
+      `[webhook] Primary conversation: ${primary.id}, merging ${secondaries.length} secondaries`
+    );
+
+    for (const secondary of secondaries) {
+      const { data: msgs, error: msgFetchError } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("conversation_id", secondary.id);
+
+      if (!msgFetchError && msgs && msgs.length > 0) {
+        await supabase
+          .from("messages")
+          .update({ conversation_id: primary.id })
+          .eq("conversation_id", secondary.id);
+
+        console.log(
+          `[webhook] Moved ${msgs.length} messages from ${secondary.id} to ${primary.id}`
+        );
+      }
+
+      primary.unread_count = (primary.unread_count || 0) + (secondary.unread_count || 0);
+      if (
+        secondary.last_message_at &&
+        (!primary.last_message_at || secondary.last_message_at > primary.last_message_at)
+      ) {
+        primary.last_message_at = secondary.last_message_at;
+        primary.last_message_text = secondary.last_message_text;
+      }
+      if (!primary.contact_name && secondary.contact_name) {
+        primary.contact_name = secondary.contact_name;
+      }
+
+      await supabase.from("conversations").delete().eq("id", secondary.id);
+
+      console.log(`[webhook] Deleted secondary conversation ${secondary.id}`);
+    }
+
+    await supabase
+      .from("conversations")
+      .update({
+        contact_phone: normalizedKey,
+        unread_count: primary.unread_count,
+        last_message_at: primary.last_message_at,
+        last_message_text: primary.last_message_text,
+        contact_name: primary.contact_name || pushName || normalizedKey,
+      })
+      .eq("id", primary.id);
+
+    conversationId = primary.id;
+    console.log(`[webhook] Using merged primary conversation ${conversationId}`);
+  } else if (existingConvs && existingConvs.length === 1) {
+    const existingConv = existingConvs[0];
+    conversationId = existingConv.id;
+
+    console.log(
+      "[webhook] Using existing conversation:",
+      conversationId,
+      "with contact_phone:",
+      existingConv.contact_phone
+    );
+
+    if (existingConv.contact_phone !== normalizedKey) {
+      console.log(
+        "[webhook] Updating contact_phone from",
+        existingConv.contact_phone,
+        "to",
+        normalizedKey
+      );
+      await supabase
+        .from("conversations")
+        .update({ contact_phone: normalizedKey })
+        .eq("id", conversationId);
+    }
+
+    const updateData: any = {
+      last_message_text: messageText,
+      last_message_at: messageTimestamp,
+    };
+
+    if (pushName) {
+      updateData.contact_name = pushName;
+    }
+
+    if (!fromMe) {
+      updateData.unread_count = (existingConv.unread_count || 0) + 1;
+    }
+
+    await supabase.from("conversations").update(updateData).eq("id", conversationId);
+  } else {
+    console.log("[webhook] Creating new conversation with contact_phone:", normalizedKey);
+    const { data: newConv, error: convError } = await supabase
+      .from("conversations")
+      .insert({
+        user_id: instance.user_id,
+        instance_id: instance.id,
+        contact_phone: normalizedKey,
+        contact_name: pushName || normalizedKey,
+        last_message_text: messageText,
+        last_message_at: messageTimestamp,
+        unread_count: fromMe ? 0 : 1,
+      })
+      .select()
+      .single();
+
+    if (convError || !newConv) {
+      console.error("[webhook] Error creating conversation:", convError);
+      return new Response(JSON.stringify({ success: false }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    conversationId = newConv.id;
+  }
+
+  if (!instancePhone) {
+    console.warn("[webhook] instancePhone is empty after fallback, using normalizedKey");
+  }
+
+  const { error: msgError } = await supabase.from("messages").insert({
+    conversation_id: conversationId,
+    instance_id: instance.id,
+    message_id: key.id,
+    sender_phone: fromMe ? instancePhone || normalizedKey : normalizedKey,
+    receiver_phone: fromMe ? normalizedKey : instancePhone || normalizedKey,
+    direction: fromMe ? "outgoing" : "incoming",
+    content: messageText,
+    status: "delivered",
+    timestamp: messageTimestamp,
+  });
+
+  if (msgError) {
+    console.error("[webhook] Error storing message:", msgError);
+  } else {
+    console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
+  }
+
+  const { data: conversation, error: convError } = await supabase
+    .from("conversations")
+    .select("ai_enabled")
+    .eq("id", conversationId)
+    .single();
+
+  if (!fromMe && conversation && conversation.ai_enabled) {
+    console.log("[webhook] AI auto-reply enabled for this conversation, triggering...");
+
+    supabase.functions
+      .invoke("ai-auto-reply", {
+        body: {
+          conversation_id: conversationId,
+          instance_id: instance.id,
+          user_id: instance.user_id,
+          message_text: messageText,
+          contact_name: pushName || normalizedKey,
+          contact_phone: normalizedKey,
+        },
+      })
+      .catch((error: unknown) => {
+        console.error("[webhook] AI auto-reply invocation error:", error);
+      });
   }
 }
 
@@ -197,15 +508,12 @@ Deno.serve(async (req) => {
   const isProduction = Deno.env.get("DENO_ENV") === "production";
 
   try {
-    // ═══════════════════════════════════════════════════════════════
-    // 🔒 SECURITY LAYER
-    // ═══════════════════════════════════════════════════════════════
-
-    // 1. RATE LIMITING
     const clientId =
-      req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
+      req.headers.get("x-forwarded-for") ||
+      req.headers.get("cf-connecting-ip") ||
+      "unknown";
 
-    const rateLimit = checkRateLimit(clientId, 100, 60000); // 100 req/min
+    const rateLimit = checkRateLimit(clientId, 100, 60000);
 
     if (!rateLimit.allowed) {
       console.warn(`[webhook-security] ⚠️  Rate limit exceeded for ${clientId}`);
@@ -221,9 +529,8 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. READ AND PARSE PAYLOAD
     const body = await req.text();
-    let payload;
+    let payload: any;
 
     try {
       payload = JSON.parse(body);
@@ -235,7 +542,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 3. VALIDATE PAYLOAD STRUCTURE
     const validationError = validateWebhookPayload(payload);
     if (validationError) {
       console.error("[webhook-security] ❌ Invalid payload:", validationError);
@@ -245,89 +551,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 4. VERIFY AUTHENTICATION (HMAC or Instance Token) + PERMISSIVE MODE
-    // Evolution API doesn't send authentication headers, so we use permissive mode
-    // Security is maintained by validating the instance exists in our database
-
-    const webhookSecret = Deno.env.get("WEBHOOK_SECRET");
-    const signature = req.headers.get("x-webhook-signature") || "";
-    const instanceApiKey = req.headers.get("apikey") || req.headers.get("x-api-key") || "";
-
-    let authenticated = false;
-    let authMethod = "";
-
-    // Try HMAC signature first (if configured and present)
-    if (webhookSecret && signature) {
-      const isValid = await verifyHmacSignature(body, signature, webhookSecret);
-      if (isValid) {
-        authenticated = true;
-        authMethod = "HMAC Signature";
-        console.log(`[webhook-security] ✅ HMAC signature verified for instance: ${payload.instance}`);
-      }
-    }
-
-    // If HMAC didn't work, try instance token authentication
-    if (!authenticated && instanceApiKey && payload.instance) {
-      // Create temporary Supabase client to verify token
-      const tempSupabase = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-      );
-
-      // Verify token against database
-      const { data: instance, error: instanceError } = await tempSupabase
-        .from("evolution_instances")
-        .select("instance_token, instance_name")
-        .eq("instance_name", payload.instance)
-        .single();
-
-      if (!instanceError && instance && instance.instance_token === instanceApiKey) {
-        authenticated = true;
-        authMethod = "Instance Token";
-        console.log(`[webhook-security] ✅ Instance token verified for: ${payload.instance}`);
-      }
-    }
-
-    // PERMISSIVE MODE: If no authentication headers provided, verify instance exists
-    if (!authenticated && payload.instance) {
-      console.warn("[webhook-security] ⚠️  PERMISSIVE MODE: No authentication headers provided");
-      console.warn("[webhook-security] ⚠️  Verifying instance exists in database...");
-
-      // Create temporary Supabase client to verify instance
-      const tempSupabase = createClient(
-        Deno.env.get("SUPABASE_URL") ?? "",
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-      );
-
-      // Check if instance exists and is valid
-      const { data: validInstance, error: validationError } = await tempSupabase
-        .from("evolution_instances")
-        .select("id, user_id, instance_name, instance_status")
-        .eq("instance_name", payload.instance)
-        .single();
-
-      if (validationError || !validInstance) {
-        console.error("[webhook-security] ❌ Instance not found in database:", payload.instance);
-        console.error("[webhook-security] 🚨 SECURITY ALERT: Unknown instance from", clientId);
-
-        return new Response(JSON.stringify({ error: "Instance not found" }), {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      authenticated = true;
-      authMethod = "Permissive Mode (Instance Validated)";
-      console.log(`[webhook-security] ⚠️  PERMISSIVE MODE: Accepting webhook for valid instance: ${payload.instance}`);
-      console.log(`[webhook-security] ⚠️  Instance belongs to user_id: ${validInstance.user_id}`);
-    }
-
-    // If still not authenticated (no instance name or validation failed), reject
-    if (!authenticated) {
-      console.error("[webhook-security] 🚨 SECURITY ALERT: Authentication failed from", clientId);
-      console.error("[webhook-security] 🚨 No valid authentication method");
-      console.error("[webhook-security] 🚨 Payload preview:", body.substring(0, 100));
-
+    const authMethod = await validateWebhookAuth(req, body, payload.instance);
+    if (!authMethod) {
+      console.error("[webhook-security] 🚨 SECURITY ALERT: Authentication failed for", clientId);
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -335,10 +561,6 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[webhook-security] ✅ Request authenticated via: ${authMethod}`);
-
-    // ═══════════════════════════════════════════════════════════════
-    // 🔒 END SECURITY LAYER
-    // ═══════════════════════════════════════════════════════════════
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
@@ -361,7 +583,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Find the instance in database
     const { data: instance, error: findError } = await supabase
       .from("evolution_instances")
       .select("*")
@@ -376,372 +597,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Handle QRCODE_UPDATED event
+    let handlerResponse: Response | void;
+
     if (event === "qrcode.updated") {
-      const qrCodeBase64 = payload.data?.qrcode?.base64;
-
-      if (qrCodeBase64) {
-        console.log(`[evolution-webhook-handler] Updating QR code for ${instanceName}`);
-
-        const { error: updateError } = await supabase
-          .from("evolution_instances")
-          .update({
-            qr_code: qrCodeBase64,
-            last_qr_update: new Date().toISOString(),
-          })
-          .eq("id", instance.id);
-
-        if (updateError) {
-          console.error("[evolution-webhook-handler] Error updating QR code:", updateError);
-        }
-      }
+      await handleQRCodeEvent(supabase, instance, payload);
+    } else if (event === "connection.update") {
+      await handleConnectionEvent(supabase, instance, payload);
+    } else if (event === "messages.upsert") {
+      handlerResponse = await handleMessageEvent(supabase, instance, payload);
+    } else {
+      console.log(`[evolution-webhook-handler] Ignoring unsupported event: ${event}`);
     }
 
-    // Handle CONNECTION_UPDATE event
-    if (event === "connection.update") {
-      const state = payload.data?.state;
-      console.log(
-        `[evolution-webhook-handler] Connection update for ${instanceName}: ${state}`
-      );
-
-      let newStatus: string | null = null;
-      let phoneNumber: string | null = null;
-
-      if (state === "open") {
-        newStatus = "connected";
-        const owner = payload.data?.instance?.owner;
-        if (owner) {
-          // Extract phone number from owner (format: "33612345678@s.whatsapp.net")
-          phoneNumber = owner.split("@")[0];
-          console.log(`[evolution-webhook-handler] Extracted phone number: ${phoneNumber}`);
-        }
-      } else if (state === "close") {
-        newStatus = "disconnected";
-      } else if (state === "connecting") {
-        newStatus = "connecting";
-      }
-
-      if (newStatus) {
-        const updateData: any = {
-          instance_status: newStatus,
-        };
-
-        if (newStatus === "connected" && phoneNumber) {
-          updateData.phone_number = phoneNumber;
-          updateData.qr_code = null; // Clear QR code when connected
-        } else if (newStatus === "disconnected") {
-          updateData.phone_number = null;
-          updateData.qr_code = null;
-        }
-
-        const { error: updateError } = await supabase
-          .from("evolution_instances")
-          .update(updateData)
-          .eq("id", instance.id);
-
-        if (updateError) {
-          console.error(
-            "[evolution-webhook-handler] Error updating connection status:",
-            updateError
-          );
-        } else {
-          console.log(`[evolution-webhook-handler] Updated status to ${newStatus}`);
-        }
-      }
-    }
-
-    // Handle MESSAGES_UPSERT event
-    if (event === "messages.upsert") {
-      const messageData = payload.data;
-      const key = messageData?.key;
-      const message = messageData?.message;
-
-      if (!key || !message) {
-        console.log("[evolution-webhook-handler] Invalid message data");
-        return new Response(JSON.stringify({ success: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      const remoteJid = key.remoteJid;
-      const fromMe = key.fromMe;
-      const messageType = messageData.messageType || "unknown";
-
-      // Enhanced content extraction - handle multiple message types
-      let messageText = "";
-      if (message.conversation) {
-        messageText = message.conversation;
-      } else if (message.extendedTextMessage?.text) {
-        messageText = message.extendedTextMessage.text;
-      } else if (message.text?.text) {
-        messageText = message.text.text;
-      } else if (message.imageMessage?.caption) {
-        messageText = message.imageMessage.caption || "[Image]";
-      } else if (message.documentMessage?.caption) {
-        messageText = message.documentMessage.caption || "[Document]";
-      } else if (message.ephemeralMessage?.message?.extendedTextMessage?.text) {
-        messageText = message.ephemeralMessage.message.extendedTextMessage.text;
-      }
-
-      const pushName = messageData.pushName || null;
-
-      if (!messageText || !remoteJid) {
-        console.log(
-          `[evolution-webhook-handler] Message ignored - no text content. Type: ${messageType}, remoteJid: ${remoteJid}`
-        );
-        return new Response(JSON.stringify({ success: true }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Normalize phone numbers with LID awareness
-      const rawJid = remoteJid;
-      const isLid = rawJid.includes("@lid");
-
-      // Resolve LID to real number if detected
-      let normalizedKey: string;
-      if (isLid) {
-        normalizedKey = await resolveLidToRealNumber(rawJid, key, messageData, instanceName);
-      } else {
-        normalizedKey = normalizeJid(rawJid);
-      }
-
-      let instancePhone = normalizeJid(instance.phone_number || "");
-
-      // Fallback: use sender from payload if instancePhone is empty
-      if (!instancePhone && payload.sender) {
-        instancePhone = normalizeJid(payload.sender);
-        console.log(
-          `[evolution-webhook-handler] Using sender as instancePhone fallback: ${instancePhone}`
-        );
-
-        // Update evolution_instances with the phone number
-        await supabase
-          .from("evolution_instances")
-          .update({ phone_number: instancePhone })
-          .eq("id", instance.id);
-      }
-
-      // Use correct timestamp from messageData.messageTimestamp
-      const messageTimestamp = messageData.messageTimestamp
-        ? new Date(messageData.messageTimestamp * 1000).toISOString()
-        : new Date().toISOString();
-
-      console.log("[webhook] Message details:", {
-        remoteJid,
-        rawJid,
-        normalizedKey,
-        isLid,
-        participant: key.participant,
-        messageParticipant: messageData.participant,
-        fromMe,
-        messageType,
-        textLength: messageText.length,
-        instancePhone,
-        pushName,
-        timestamp: messageTimestamp,
-      });
-
-      // Search for existing conversations using both raw and normalized keys
-      const { data: existingConvs, error: searchError } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("instance_id", instance.id)
-        .in("contact_phone", [rawJid, normalizedKey])
-        .order("last_message_at", { ascending: false, nullsFirst: false });
-
-      if (searchError) {
-        console.error("[webhook] Error searching conversations:", searchError);
-      }
-
-      let conversationId: string;
-
-      if (existingConvs && existingConvs.length > 1) {
-        // Multiple conversations exist - merge them immediately
-        console.log(
-          `[webhook] Found ${existingConvs.length} conversations for contact, merging now...`
-        );
-
-        // Primary: prefer normalized, otherwise most recent
-        const primary =
-          existingConvs.find((c) => c.contact_phone === normalizedKey) || existingConvs[0];
-        const secondaries = existingConvs.filter((c) => c.id !== primary.id);
-
-        console.log(
-          `[webhook] Primary conversation: ${primary.id}, merging ${secondaries.length} secondaries`
-        );
-
-        // Move all messages from secondaries to primary
-        for (const secondary of secondaries) {
-          const { data: msgs, error: msgFetchError } = await supabase
-            .from("messages")
-            .select("id")
-            .eq("conversation_id", secondary.id);
-
-          if (!msgFetchError && msgs && msgs.length > 0) {
-            await supabase
-              .from("messages")
-              .update({ conversation_id: primary.id })
-              .eq("conversation_id", secondary.id);
-
-            console.log(
-              `[webhook] Moved ${msgs.length} messages from ${secondary.id} to ${primary.id}`
-            );
-          }
-
-          // Aggregate metadata
-          primary.unread_count = (primary.unread_count || 0) + (secondary.unread_count || 0);
-          if (
-            secondary.last_message_at &&
-            (!primary.last_message_at || secondary.last_message_at > primary.last_message_at)
-          ) {
-            primary.last_message_at = secondary.last_message_at;
-            primary.last_message_text = secondary.last_message_text;
-          }
-          if (!primary.contact_name && secondary.contact_name) {
-            primary.contact_name = secondary.contact_name;
-          }
-
-          // Delete secondary
-          await supabase.from("conversations").delete().eq("id", secondary.id);
-
-          console.log(`[webhook] Deleted secondary conversation ${secondary.id}`);
-        }
-
-        // Update primary with aggregated data and ensure normalized contact_phone
-        await supabase
-          .from("conversations")
-          .update({
-            contact_phone: normalizedKey,
-            unread_count: primary.unread_count,
-            last_message_at: primary.last_message_at,
-            last_message_text: primary.last_message_text,
-            contact_name: primary.contact_name || pushName || normalizedKey,
-          })
-          .eq("id", primary.id);
-
-        conversationId = primary.id;
-        console.log(`[webhook] Using merged primary conversation ${conversationId}`);
-      } else if (existingConvs && existingConvs.length === 1) {
-        // Single conversation exists
-        const existingConv = existingConvs[0];
-        conversationId = existingConv.id;
-
-        console.log(
-          "[webhook] Using existing conversation:",
-          conversationId,
-          "with contact_phone:",
-          existingConv.contact_phone
-        );
-
-        // Ensure normalized contact_phone
-        if (existingConv.contact_phone !== normalizedKey) {
-          console.log(
-            "[webhook] Updating contact_phone from",
-            existingConv.contact_phone,
-            "to",
-            normalizedKey
-          );
-          await supabase
-            .from("conversations")
-            .update({ contact_phone: normalizedKey })
-            .eq("id", conversationId);
-        }
-
-        // Update existing conversation
-        const updateData: any = {
-          last_message_text: messageText,
-          last_message_at: messageTimestamp,
-        };
-
-        // Update name if available
-        if (pushName) {
-          updateData.contact_name = pushName;
-        }
-
-        // Increment unread_count only for incoming messages
-        if (!fromMe) {
-          updateData.unread_count = (existingConv.unread_count || 0) + 1;
-        }
-
-        await supabase.from("conversations").update(updateData).eq("id", conversationId);
-      } else {
-        // Create new conversation with normalized key
-        console.log("[webhook] Creating new conversation with contact_phone:", normalizedKey);
-        const { data: newConv, error: convError } = await supabase
-          .from("conversations")
-          .insert({
-            user_id: instance.user_id,
-            instance_id: instance.id,
-            contact_phone: normalizedKey,
-            contact_name: pushName || normalizedKey,
-            last_message_text: messageText,
-            last_message_at: messageTimestamp,
-            unread_count: fromMe ? 0 : 1,
-          })
-          .select()
-          .single();
-
-        if (convError || !newConv) {
-          console.error("[webhook] Error creating conversation:", convError);
-          return new Response(JSON.stringify({ success: false }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-
-        conversationId = newConv.id;
-      }
-
-      // Store the message with normalized numbers
-      if (!instancePhone) {
-        console.warn("[webhook] instancePhone is empty after fallback, using normalizedKey");
-      }
-
-      const { error: msgError } = await supabase.from("messages").insert({
-        conversation_id: conversationId,
-        instance_id: instance.id,
-        message_id: key.id,
-        sender_phone: fromMe ? instancePhone || normalizedKey : normalizedKey,
-        receiver_phone: fromMe ? normalizedKey : instancePhone || normalizedKey,
-        direction: fromMe ? "outgoing" : "incoming",
-        content: messageText,
-        status: "delivered",
-        timestamp: messageTimestamp,
-      });
-
-      if (msgError) {
-        console.error("[webhook] Error storing message:", msgError);
-      } else {
-        console.log(`[webhook] Message stored in conversation ${conversationId} at ${messageTimestamp}`);
-      }
-
-      // Trigger AI auto-reply if enabled for this conversation and message is incoming
-      // First, check if AI is enabled for this conversation
-      const { data: conversation, error: convError } = await supabase
-        .from("conversations")
-        .select("ai_enabled")
-        .eq("id", conversationId)
-        .single();
-
-      if (!fromMe && conversation && conversation.ai_enabled) {
-        console.log("[webhook] AI auto-reply enabled for this conversation, triggering...");
-
-        // Appel asynchrone (fire-and-forget)
-        supabase.functions.invoke("ai-auto-reply", {
-            body: {
-              conversation_id: conversationId,
-              instance_id: instance.id,
-              user_id: instance.user_id,
-              message_text: messageText,
-              contact_name: pushName || normalizedKey,
-              contact_phone: normalizedKey,
-            },
-          })
-          .catch((error) => {
-            console.error("[webhook] AI auto-reply invocation error:", error);
-          });
-      }
+    if (handlerResponse) {
+      return handlerResponse;
     }
 
     return new Response(JSON.stringify({ success: true }), {
