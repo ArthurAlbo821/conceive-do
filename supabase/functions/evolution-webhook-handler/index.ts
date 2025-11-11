@@ -97,6 +97,32 @@ async function validateWebhookAuth(
     );
   }
 
+  // PERMISSIVE MODE: If no authentication headers provided, verify instance exists
+  // Evolution API doesn't send authentication headers by default
+  if (instanceName) {
+    console.warn("[webhook-security] ⚠️  PERMISSIVE MODE: No authentication headers provided");
+    console.warn("[webhook-security] ⚠️  Verifying instance exists in database...");
+
+    const tempSupabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
+
+    const { data: validInstance, error: validationError } = await tempSupabase
+      .from("evolution_instances")
+      .select("id, user_id, instance_name, instance_status")
+      .eq("instance_name", instanceName)
+      .single();
+
+    if (!validationError && validInstance) {
+      console.log(`[webhook-security] ⚠️  PERMISSIVE MODE: Accepting webhook for valid instance: ${instanceName}`);
+      console.log(`[webhook-security] ⚠️  Instance belongs to user_id: ${validInstance.user_id}`);
+      return "Instance Validated (Permissive Mode)";
+    }
+
+    console.error("[webhook-security] ❌ Instance not found in database:", instanceName);
+  }
+
   return null;
 }
 
