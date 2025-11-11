@@ -1,681 +1,275 @@
+// supabase/functions/create-evolution-instance/index.ts
+// Creates or refreshes an Evolution instance for a user.
+// Keeps the flow minimal: validate state, create/verify instance, configure webhook, fetch QR, persist.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.76.1';
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
-
-// Helper function for retrying fetch with timeout
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit,
-  config: { retries?: number; timeoutMs?: number } = {}
-): Promise<Response> {
-  const { retries = 2, timeoutMs = 10000 } = config;
+const WEBHOOK_EVENTS = ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT'];
+const wait = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+async function fetchWithRetry(url: string, options: RequestInit, config: { retries?: number; timeoutMs?: number } = {}): Promise<Response> {
+  const { retries = 1, timeoutMs = 10000 } = config;
   let lastError: Error | null = null;
-
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-
+      const response = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeoutId);
       return response;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error('Unknown fetch error');
-      console.error(`[fetchWithRetry] Attempt ${attempt + 1}/${retries + 1} failed:`, lastError.message);
-
-      if (attempt < retries) {
-        const backoffMs = 800 * Math.pow(2, attempt);
-        console.log(`[fetchWithRetry] Retrying in ${backoffMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, backoffMs));
-      }
+      console.error(`[fetchWithRetry] Attempt ${attempt + 1}/${retries + 1} failed for ${url}:`, lastError.message);
+      if (attempt < retries) await wait(500);
     }
   }
-
-  throw lastError || new Error('All retry attempts failed');
+  throw lastError ?? new Error('All retry attempts failed');
 }
 
-// Helper function to check if instance exists in Evolution API
-// Uses instance-specific token and connectionState endpoint for reliable checking
-async function checkInstanceExists(
-  instanceName: string,
-  instanceToken: string,
-  baseUrl: string
-): Promise<boolean> {
+async function checkInstanceExists(instanceName: string, instanceToken: string, baseUrl: string): Promise<boolean> {
   try {
-    // Use connectionState endpoint which is more reliable than fetchInstances
-    // Returns 200 if instance exists (regardless of connection state)
-    // Returns 404 if instance doesn't exist
     const response = await fetchWithRetry(
       `${baseUrl}/instance/connectionState/${instanceName}`,
-      {
-        method: 'GET',
-        headers: {
-          'apikey': instanceToken,  // Use instance-specific token, not global API key
-        },
-      },
-      { retries: 1, timeoutMs: 5000 }
+      { method: 'GET', headers: { apikey: instanceToken } },
+      { retries: 1, timeoutMs: 8000 },
     );
-
-    // If we get a successful response, instance exists
-    // 404 means instance doesn't exist
-    const exists = response.ok;
-    console.log(`[checkInstanceExists] Instance ${instanceName}: ${exists ? 'EXISTS' : 'NOT FOUND'} (status: ${response.status})`);
-    return exists;
+    if (response.status === 404) {
+      console.log(`[checkInstanceExists] Instance ${instanceName} not found (404)`);
+      return false;
+    }
+    if (!response.ok) {
+      const details = await response.text().catch(() => 'no-body');
+      console.error(`[checkInstanceExists] Unexpected status ${response.status}: ${details}`);
+      return false;
+    }
+    console.log(`[checkInstanceExists] Instance ${instanceName} confirmed`);
+    return true;
   } catch (error) {
-    console.error('[checkInstanceExists] Error checking instance:', error);
-    return false;  // Assume doesn't exist on error (safe default)
+    console.error('[checkInstanceExists] Error while checking instance existence:', error);
+    return false;
+  }
+}
+
+async function verifyTokenOrThrow(instanceName: string, instanceToken: string, baseUrl: string): Promise<void> {
+  const exists = await checkInstanceExists(instanceName, instanceToken, baseUrl);
+  if (!exists) {
+    throw new Error('Token validation failed');
+  }
+}
+
+async function configureWebhook(instanceName: string, instanceToken: string, baseUrl: string, webhookUrl: string): Promise<boolean> {
+  const webhookPayload = {
+    method: 'POST',
+    headers: { apikey: instanceToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ webhook: { url: webhookUrl, enabled: true, events: WEBHOOK_EVENTS } }),
+  } satisfies RequestInit;
+  try {
+    const response = await fetchWithRetry(
+      `${baseUrl}/webhook/set/${instanceName}`,
+      webhookPayload,
+      { retries: 0, timeoutMs: 10000 },
+    );
+    if (response.ok) {
+      console.log('[create-evolution-instance] Webhook configured on first attempt');
+      return true;
+    }
+    if (response.status === 404) {
+      console.log('[create-evolution-instance] Webhook got 404, waiting before retry');
+      await wait(2000);
+      const retryResponse = await fetchWithRetry(
+        `${baseUrl}/webhook/set/${instanceName}`,
+        webhookPayload,
+        { retries: 0, timeoutMs: 10000 },
+      );
+      if (retryResponse.ok) {
+        console.log('[create-evolution-instance] Webhook configured on retry');
+        return true;
+      }
+      const retryDetails = await retryResponse.text().catch(() => 'no-body');
+      console.error('[create-evolution-instance] Webhook retry failed:', retryResponse.status, retryDetails);
+      return false;
+    }
+    const details = await response.text().catch(() => 'no-body');
+    console.error('[create-evolution-instance] Webhook failed:', response.status, details);
+    return false;
+  } catch (error) {
+    console.error('[create-evolution-instance] Webhook configuration error:', error);
+    try {
+      await wait(2000);
+      const retryResponse = await fetchWithRetry(
+        `${baseUrl}/webhook/set/${instanceName}`,
+        webhookPayload,
+        { retries: 0, timeoutMs: 10000 },
+      );
+      if (retryResponse.ok) {
+        console.log('[create-evolution-instance] Webhook configured after retrying error case');
+        return true;
+      }
+      const retryDetails = await retryResponse.text().catch(() => 'no-body');
+      console.error('[create-evolution-instance] Webhook retry after error failed:', retryResponse.status, retryDetails);
+    } catch (retryError) {
+      console.error('[create-evolution-instance] Webhook retry exception:', retryError);
+    }
+
+    return false;
   }
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
-
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   try {
     const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('Missing authorization header');
-    }
-
-    // Parse request body for parameters
+    if (!authHeader) throw new Error('Missing authorization header');
     const body = await req.json().catch(() => ({}));
     const forceRefresh = body?.forceRefresh === true;
-    const fromQueue = body?.fromQueue === true;
-    const userId = body?.userId;
-
-    // Determine if this is a service role call (from queue processing)
-    const isServiceRole = authHeader.includes(Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || 'impossible-to-match');
-
-    let supabase;
+    const userId = body?.userId as string | undefined;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+    if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) throw new Error('Supabase environment variables missing');
+    const isServiceRoleCall = supabaseServiceRoleKey && authHeader.includes(supabaseServiceRoleKey);
+    const supabase = createClient(
+      supabaseUrl,
+      isServiceRoleCall && userId ? supabaseServiceRoleKey : supabaseAnonKey,
+      isServiceRoleCall && userId
+        ? undefined
+        : { global: { headers: { Authorization: authHeader } } },
+    );
     let user;
-
-    if (isServiceRole && userId) {
-      // Service role call from queue - use service role client
-      console.log(`[create-evolution-instance] Service role call for user ${userId} (fromQueue: ${fromQueue})`);
-
-      supabase = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-      );
-
-      // Get user info from auth.users
-      const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
-      if (userError || !userData.user) {
-        throw new Error(`User not found: ${userId}`);
-      }
-      user = userData.user;
+    if (isServiceRoleCall && userId) {
+      console.log(`[create-evolution-instance] Service role call for user ${userId}`);
+      const { data, error } = await supabase.auth.admin.getUserById(userId);
+      if (error || !data.user) throw new Error(`User not found: ${userId}`);
+      user = data.user;
     } else {
-      // Regular authenticated user call
-      supabase = createClient(
-        Deno.env.get('SUPABASE_URL') ?? '',
-        Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-        { global: { headers: { Authorization: authHeader } } }
-      );
-
-      const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
-      if (userError || !authUser) {
-        throw new Error('Unauthorized');
-      }
-      user = authUser;
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) throw new Error('Unauthorized');
+      user = data.user;
     }
-
-    console.log(`[create-evolution-instance] User ${user.id} requesting instance (forceRefresh: ${forceRefresh})`);
-
-    // Check if user already has an instance
-    const { data: existingInstance, error: checkError } = await supabase
-      .from('evolution_instances')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
-
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('[create-evolution-instance] Error checking existing instance:', checkError);
-      throw checkError;
-    }
-
-    const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY');
-    if (!EVOLUTION_API_KEY) {
-      throw new Error('EVOLUTION_API_KEY not configured');
-    }
-
-    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
-
-    // Check if instance uses old format with timestamp (migration needed)
-    if (existingInstance && /_\d{13}$/.test(existingInstance.instance_name)) {
-      console.log(`[create-evolution-instance] Detected old format instance: ${existingInstance.instance_name}`);
-      console.log('[create-evolution-instance] Migrating to new permanent format...');
-      
-      // Delete old instance from database to force recreation with new format
-      await supabase
-        .from('evolution_instances')
-        .delete()
-        .eq('id', existingInstance.id);
-      
-      console.log('[create-evolution-instance] Old instance deleted from DB, will create new permanent instance');
-    }
-
-    // If forceRefresh is true, handle QR code refresh
-    if (forceRefresh && existingInstance) {
-      console.log(`[create-evolution-instance] Force refreshing QR code for instance: ${existingInstance.instance_name}`);
-      
-      // First, check if instance still exists in Evolution API
-      const instanceExists = await checkInstanceExists(existingInstance.instance_name, existingInstance.instance_token, baseUrl);
-      
-      if (!instanceExists) {
-        console.log('[create-evolution-instance] Instance no longer exists in Evolution API (manually deleted)');
-        console.log('[create-evolution-instance] Deleting from database and recreating...');
-        
-        // Delete from database
-        await supabase
-          .from('evolution_instances')
-          .delete()
-          .eq('id', existingInstance.id);
-        
-        // Will continue below to create new instance
-      } else {
-        // Instance exists, regenerate QR code
-        try {
-          const qrResponse = await fetchWithRetry(
-            `${baseUrl}/instance/connect/${existingInstance.instance_name}`,
-            {
-              method: 'GET',
-              headers: {
-                'apikey': existingInstance.instance_token,
-              },
-            },
-            { retries: 2, timeoutMs: 10000 }
-          );
-
-          if (!qrResponse.ok) {
-            // If 404, instance was deleted
-            if (qrResponse.status === 404) {
-              console.log('[create-evolution-instance] Got 404, instance was deleted. Removing from DB and recreating...');
-              
-              await supabase
-                .from('evolution_instances')
-                .delete()
-                .eq('id', existingInstance.id);
-              
-              // Will continue below to create new instance
-            } else {
-              throw new Error(`Failed to fetch new QR code: ${qrResponse.status}`);
-            }
-          } else {
-            const qrData = await qrResponse.json();
-            const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
-
-            // Update QR code AND status in database
-            const { data: updatedInstance, error: updateError } = await supabase
-              .from('evolution_instances')
-              .update({
-                qr_code: qrCodeBase64,
-                last_qr_update: new Date().toISOString(),
-                instance_status: 'connecting', // Force status to connecting when we have a QR
-              })
-              .eq('id', existingInstance.id)
-              .select()
-              .single();
-
-            if (updateError) {
-              console.error('[create-evolution-instance] Failed to update QR code:', updateError);
-              throw updateError;
-            }
-
-            console.log(`[create-evolution-instance] QR code refreshed successfully, status set to connecting`);
-
-            return new Response(
-              JSON.stringify({
-                success: true,
-                instance: updatedInstance,
-              }),
-              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          }
-        } catch (error) {
-          console.error('[create-evolution-instance] Error refreshing QR code:', error);
-          
-          // If instance doesn't exist, delete from DB and recreate
-          console.log('[create-evolution-instance] Deleting non-existent instance from DB and recreating...');
-          await supabase
-            .from('evolution_instances')
-            .delete()
-            .eq('id', existingInstance.id);
-          
-          // Will continue below to create new instance
-        }
-      }
-    }
-
-    // Re-fetch instance in case it was deleted above
-    const { data: currentInstance } = await supabase
+    console.log(`[create-evolution-instance] User ${user.id} requested instance (forceRefresh: ${forceRefresh})`);
+    const { data: existingInstance, error: existingError } = await supabase
       .from('evolution_instances')
       .select('*')
       .eq('user_id', user.id)
       .maybeSingle();
-
-    // If instance exists and is valid (connecting or connected with token), check if we need to recover QR
-    if (currentInstance && 
-        (currentInstance.instance_status === 'connecting' || currentInstance.instance_status === 'connected') &&
-        currentInstance.instance_token) {
-      
-      // If status is connecting but no QR code, try to recover it from Evolution API
-      if (currentInstance.instance_status === 'connecting' && !currentInstance.qr_code) {
-        console.log(`[create-evolution-instance] Instance is connecting but has no QR code, attempting recovery`);
-        
-        try {
-          const qrResponse = await fetchWithRetry(
-            `${baseUrl}/instance/connect/${currentInstance.instance_name}`,
-            {
-              method: 'GET',
-              headers: {
-                'apikey': currentInstance.instance_token,
-              },
-            },
-            { retries: 2, timeoutMs: 10000 }
-          );
-
-          if (qrResponse.ok) {
-            const qrData = await qrResponse.json();
-            const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
-
-            if (qrCodeBase64) {
-              console.log(`[create-evolution-instance] QR code recovered from Evolution API`);
-              
-              // Update database with recovered QR code
-              const { data: updatedInstance, error: updateError } = await supabase
-                .from('evolution_instances')
-                .update({
-                  qr_code: qrCodeBase64,
-                  last_qr_update: new Date().toISOString(),
-                  instance_status: 'connecting',
-                })
-                .eq('id', currentInstance.id)
-                .select()
-                .single();
-
-              if (updateError) {
-                console.error('[create-evolution-instance] Failed to save recovered QR code:', updateError);
-              } else {
-                return new Response(
-                  JSON.stringify({
-                    success: true,
-                    instance: updatedInstance,
-                  }),
-                  { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
-              }
-            }
-          }
-        } catch (error) {
-          console.error('[create-evolution-instance] Failed to recover QR code:', error);
-          // Continue to return existing instance even if recovery fails
-        }
-      }
-      
-      console.log(`[create-evolution-instance] Returning existing instance: ${currentInstance.instance_name}`);
-      return new Response(
-        JSON.stringify({
-          success: true,
-          instance: currentInstance,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-    
-    // Always use permanent instance name format: user_${userId}
-    const instanceName = `user_${user.id}`;
-    // Reuse existing token or generate a new permanent one (UUID only, no prefix)
-    const instanceToken = currentInstance?.instance_token || crypto.randomUUID();
-    const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/evolution-webhook-handler`;
-
-    // If instance exists and is disconnected, try to reconnect it
-    if (currentInstance && currentInstance.instance_status === 'disconnected' && currentInstance.instance_token) {
-      console.log(`[create-evolution-instance] Reconnecting disconnected instance: ${instanceName}`);
-      
-      // Check if instance still exists in Evolution API
-      const instanceExists = await checkInstanceExists(instanceName, currentInstance.instance_token, baseUrl);
-      
-      try {
-        if (instanceExists) {
-          console.log(`[create-evolution-instance] Instance exists in Evolution API, regenerating QR code`);
-          
-          // Regenerate QR code for existing instance
-          const qrResponse = await fetchWithRetry(
-            `${baseUrl}/instance/connect/${instanceName}`,
-            {
-              method: 'GET',
-              headers: {
-                'apikey': currentInstance.instance_token,
-              },
-            },
-            { retries: 2, timeoutMs: 10000 }
-          );
-
-          if (qrResponse.ok) {
-            const qrData = await qrResponse.json();
-            const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
-
-            // Update database with new QR code and status
-            const { data: updatedInstance, error: updateError } = await supabase
-              .from('evolution_instances')
-              .update({
-                instance_status: 'connecting',
-                qr_code: qrCodeBase64,
-                last_qr_update: new Date().toISOString(),
-              })
-              .eq('id', currentInstance.id)
-              .select()
-              .single();
-
-            if (updateError) {
-              console.error('[create-evolution-instance] Failed to update reconnected instance:', updateError);
-              throw updateError;
-            }
-
-            console.log(`[create-evolution-instance] Instance reconnected successfully with new QR code`);
-
-            return new Response(
-              JSON.stringify({
-                success: true,
-                instance: updatedInstance,
-              }),
-              { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-          } else {
-            // If 404, instance was deleted
-            if (qrResponse.status === 404) {
-              console.log('[create-evolution-instance] Got 404, instance was deleted from Evolution API');
-              console.log('[create-evolution-instance] Deleting from database and will recreate...');
-              
-              await supabase
-                .from('evolution_instances')
-                .delete()
-                .eq('id', currentInstance.id);
-            }
-          }
-        } else {
-          console.log(`[create-evolution-instance] Instance doesn't exist in Evolution API, will recreate with same name`);
-          
-          // Delete old DB entry
-          await supabase
-            .from('evolution_instances')
-            .delete()
-            .eq('id', currentInstance.id);
-        }
-      } catch (error) {
-        console.error('[create-evolution-instance] Error during reconnection:', error);
-        console.log('[create-evolution-instance] Will attempt to recreate instance');
-        
-        // Delete old DB entry to force recreation
-        await supabase
-          .from('evolution_instances')
-          .delete()
-          .eq('id', currentInstance.id);
+    if (existingError) throw existingError;
+    let currentInstance = existingInstance ?? null;
+    if (currentInstance && !forceRefresh) {
+      const status = currentInstance.instance_status;
+      if (status === 'connecting' || status === 'connected') {
+        console.log('[create-evolution-instance] Instance already active, returning existing data');
+        return new Response(JSON.stringify({ success: true, instance: currentInstance }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
       }
     }
-
-    // At this point, we need to create a new instance (or recreate a disconnected one)
-    console.log(`[create-evolution-instance] Creating/recreating instance: ${instanceName}`);
-
-    // Step 1: Create instance
-    let createResponse: Response;
-    try {
-      createResponse = await fetchWithRetry(
-        `${baseUrl}/instance/create`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': EVOLUTION_API_KEY,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            instanceName: instanceName,
-            token: instanceToken,
-            qrcode: true,
-            integration: 'WHATSAPP-BAILEYS',
-          }),
-        },
-        { retries: 2, timeoutMs: 10000 }
-      );
-    } catch (error) {
-      console.error('[create-evolution-instance] Evolution API unreachable:', error);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: 'evolution_api_unreachable',
-          error: 'L\'API Evolution est temporairement indisponible. Veuillez réessayer dans quelques minutes.',
-          details: error instanceof Error ? error.message : 'Network timeout',
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+    if (currentInstance && currentInstance.instance_status === 'disconnected') {
+      console.log('[create-evolution-instance] Removing disconnected instance before recreating');
+      await supabase
+        .from('evolution_instances')
+        .delete()
+        .eq('id', currentInstance.id);
+      currentInstance = null;
     }
-
-    if (!createResponse.ok) {
-      const errorText = await createResponse.text();
-      console.error('[create-evolution-instance] Evolution API create error:', errorText);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: 'evolution_api_error',
-          error: 'Erreur lors de la création de l\'instance WhatsApp.',
-          details: errorText,
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    }
-
-    // Get the API-generated token from the response
-    const createData = await createResponse.json();
-    // The token can be in multiple places depending on the API version
-    const apiGeneratedToken = 
-      (typeof createData.hash === 'string' ? createData.hash : createData.hash?.apikey) || 
-      createData.instance?.token ||
-      instanceToken; // Fallback to our generated token
-
-    if (!apiGeneratedToken) {
-      console.error('[create-evolution-instance] No token in API response:', createData);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: 'missing_token',
-          error: 'L\'API n\'a pas retourné de token d\'instance.',
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
-    }
-
-    console.log(`[create-evolution-instance] ✅ Instance created, received token from API`);
-
-    // Validate token before proceeding
-    if (apiGeneratedToken !== instanceToken) {
-      console.log(`[create-evolution-instance] ⚠️ API returned different token than requested`);
-      console.log(`[create-evolution-instance]    Requested: ${instanceToken.substring(0, 8)}...`);
-      console.log(`[create-evolution-instance]    Received:  ${apiGeneratedToken.substring(0, 8)}...`);
-    }
-
-    // Add delay to allow Evolution API's internal database to complete transactions
-    console.log('[create-evolution-instance] ⏱️  Waiting 3 seconds for Evolution API to stabilize...');
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    // Verify instance exists before attempting webhook configuration
-    console.log('[create-evolution-instance] Verifying instance existence in Evolution API...');
-    let instanceReady = false;
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      instanceReady = await checkInstanceExists(instanceName, apiGeneratedToken, baseUrl);
-      if (instanceReady) {
-        console.log(`[create-evolution-instance] ✅ Instance verified (attempt ${attempt}/5)`);
-        break;
-      }
-      console.log(`[create-evolution-instance] Instance not ready yet (attempt ${attempt}/5), waiting 1s...`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-
-    if (!instanceReady) {
-      console.error('[create-evolution-instance] ⚠️ Instance verification failed after 5 attempts');
-      console.log('[create-evolution-instance] Proceeding with webhook configuration anyway...');
-    } else {
-      console.log('[create-evolution-instance] ✅ Instance ready and token validated');
-    }
-
-    console.log(`[create-evolution-instance] 📡 Configuring webhook...`);
-
-    try {
-      // Correct webhook configuration format based on Evolution API requirements
-      const webhookConfig = {
-        webhook: {
-          url: webhookUrl,
-          enabled: true,
-          events: [
-            'QRCODE_UPDATED',
-            'CONNECTION_UPDATE',
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE',
-            'SEND_MESSAGE'
-          ]
-        }
-      };
-
-
-      // Retry webhook configuration with exponential backoff specifically for 404 errors
-      let webhookConfigured = false;
-      let lastWebhookError = null;
-
-      for (let retryAttempt = 0; retryAttempt < 3; retryAttempt++) {
-        try {
-          const webhookResponse = await fetchWithRetry(
-            `${baseUrl}/webhook/set/${instanceName}`,
-            {
-              method: 'POST',
-              headers: {
-                'apikey': apiGeneratedToken,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify(webhookConfig),
-            },
-            { retries: 1, timeoutMs: 10000 }
-          );
-
-          if (webhookResponse.ok) {
-            console.log('[create-evolution-instance] ✅ Webhook configured successfully');
-            webhookConfigured = true;
-            break;
-          } else {
-            const errorText = await webhookResponse.text();
-            lastWebhookError = {
-              status: webhookResponse.status,
-              error: webhookResponse.statusText,
-              response: errorText
-            };
-
-            // If it's a 404 "instance does not exist" error, this is a timing issue - retry with backoff
-            if (webhookResponse.status === 404 && retryAttempt < 2) {
-              const backoffMs = 1000 * Math.pow(2, retryAttempt); // 1s, 2s, 4s
-              console.log(`[create-evolution-instance] ⏱️  Webhook got 404, retrying in ${backoffMs}ms (attempt ${retryAttempt + 2}/3)...`);
-              await new Promise(resolve => setTimeout(resolve, backoffMs));
-              continue;
-            } else {
-              // Other errors or final attempt
-              console.error(`[create-evolution-instance] ❌ Webhook failed: ${webhookResponse.status} ${webhookResponse.statusText}`);
-              break;
-            }
-          }
-        } catch (error) {
-          lastWebhookError = error;
-          if (retryAttempt < 2) {
-            const backoffMs = 1000 * Math.pow(2, retryAttempt);
-            console.log(`[create-evolution-instance] Webhook config exception, retrying in ${backoffMs}ms...`);
-            await new Promise(resolve => setTimeout(resolve, backoffMs));
-          }
-        }
-      }
-
-      if (!webhookConfigured) {
-        console.error('[create-evolution-instance] ⚠️ Webhook failed after 3 attempts');
-        console.log('[create-evolution-instance] ℹ️  Instance will use polling for updates');
-      }
-    } catch (error) {
-      console.error('[create-evolution-instance] ⚠️ Webhook configuration exception');
-      console.log('[create-evolution-instance] ℹ️  Instance will use polling for updates');
-      // Non-blocking: continue without webhook
-    }
-
-    console.log(`[create-evolution-instance] 📱 Fetching QR code...`);
-
-    // Step 3: Get QR code
-    let qrResponse: Response;
-    try {
-      qrResponse = await fetchWithRetry(
-        `${baseUrl}/instance/connect/${instanceName}`,
+    const EVOLUTION_API_KEY = Deno.env.get('EVOLUTION_API_KEY');
+    if (!EVOLUTION_API_KEY) throw new Error('EVOLUTION_API_KEY not configured');
+    const baseUrl = (Deno.env.get('EVOLUTION_API_BASE_URL') ?? 'https://cst-evolution-api-kaezwnkk.usecloudstation.com').replace(/\/$/, '');
+    const webhookUrl = `${supabaseUrl}/functions/v1/evolution-webhook-handler`;
+    if (forceRefresh) {
+      if (!currentInstance || !currentInstance.instance_token) throw new Error('No instance available for refresh');
+      console.log(`[create-evolution-instance] Refreshing QR code for ${currentInstance.instance_name}`);
+      await verifyTokenOrThrow(currentInstance.instance_name, currentInstance.instance_token, baseUrl);
+      const qrResponse = await fetchWithRetry(
+        `${baseUrl}/instance/connect/${currentInstance.instance_name}`,
         {
           method: 'GET',
-          headers: {
-            'apikey': apiGeneratedToken,
-          },
+          headers: { apikey: currentInstance.instance_token },
         },
-        { retries: 2, timeoutMs: 10000 }
+        { retries: 1, timeoutMs: 10000 },
       );
-    } catch (error) {
-      console.error('[create-evolution-instance] ❌ QR code fetch failed:', error);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: 'evolution_api_unreachable',
-          error: 'L\'API Evolution est temporairement indisponible. Veuillez réessayer dans quelques minutes.',
-          details: error instanceof Error ? error.message : 'Network timeout',
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      if (!qrResponse.ok) {
+        const details = await qrResponse.text().catch(() => 'no-body');
+        throw new Error(`Unable to refresh QR code: ${details}`);
+      }
+      const qrPayload = await qrResponse.json();
+      const refreshedQr = qrPayload.base64 || qrPayload.qrcode?.base64;
+      if (!refreshedQr) throw new Error('QR code not provided by API');
+      const { data: refreshedInstance, error: refreshError } = await supabase
+        .from('evolution_instances')
+        .update({
+          qr_code: refreshedQr,
+          instance_status: 'connecting',
+          last_qr_update: new Date().toISOString(),
+        })
+        .eq('id', currentInstance.id)
+        .select()
+        .single();
+      if (refreshError) throw refreshError;
+      console.log('[create-evolution-instance] QR refresh complete');
+      return new Response(JSON.stringify({ success: true, instance: refreshedInstance }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
+
+    const instanceName = `user_${user.id}`;
+    const requestedToken = currentInstance?.instance_token ?? crypto.randomUUID();
+    console.log(`[create-evolution-instance] Creating instance ${instanceName}`);
+
+    const createResponse = await fetchWithRetry(
+      `${baseUrl}/instance/create`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: EVOLUTION_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          instanceName,
+          token: requestedToken,
+          integration: 'WHATSAPP-BAILEYS',
+          qrcode: true,
+        }),
+      },
+      { retries: 1, timeoutMs: 10000 },
+    );
+
+    if (!createResponse.ok) {
+      const details = await createResponse.text().catch(() => 'no-body');
+      throw new Error(`Evolution API create error: ${details}`);
+    }
+
+    const createPayload = await createResponse.json();
+    const apiGeneratedToken =
+      (typeof createPayload.hash === 'string' ? createPayload.hash : createPayload.hash?.apikey) ||
+      createPayload.instance?.token ||
+      requestedToken;
+    if (!apiGeneratedToken) throw new Error('Evolution API did not return a token');
+
+    console.log('[create-evolution-instance] Token received from Evolution API, verifying connection state');
+    await verifyTokenOrThrow(instanceName, apiGeneratedToken, baseUrl);
+
+    const webhookConfigured = await configureWebhook(instanceName, apiGeneratedToken, baseUrl, webhookUrl);
+    if (!webhookConfigured) {
+      console.log('[create-evolution-instance] Continuing without webhook (non-blocking)');
+    }
+
+    const qrResponse = await fetchWithRetry(
+      `${baseUrl}/instance/connect/${instanceName}`,
+      {
+        method: 'GET',
+        headers: { apikey: apiGeneratedToken },
+      },
+      { retries: 1, timeoutMs: 10000 },
+    );
 
     if (!qrResponse.ok) {
-      const errorText = await qrResponse.text();
-      console.error(`[create-evolution-instance] ❌ QR code fetch error: ${qrResponse.status}`);
-      return new Response(
-        JSON.stringify({
-          success: false,
-          code: 'evolution_api_error',
-          error: 'Impossible de récupérer le QR code.',
-          details: errorText,
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
-      );
+      const details = await qrResponse.text().catch(() => 'no-body');
+      throw new Error(`Unable to retrieve QR code: ${details}`);
     }
+    const qrPayload = await qrResponse.json();
+    const qrCodeBase64 = qrPayload.base64 || qrPayload.qrcode?.base64;
+    if (!qrCodeBase64) throw new Error('QR code not provided by API');
 
-    const qrData = await qrResponse.json();
-    const qrCodeBase64 = qrData.base64 || qrData.qrcode?.base64;
+    const now = new Date().toISOString();
 
-    console.log(`[create-evolution-instance] ✅ QR code retrieved`);
-    console.log(`[create-evolution-instance] 💾 Saving to database...`);
-
-    // Step 4: Save to database
-    // CRITICAL: Use currentInstance (reloaded after potential deletions) not existingInstance
-    const dbInstance = currentInstance || null;
-
-    if (dbInstance) {
-      // Update existing instance
+    if (currentInstance) {
       const { data: updatedInstance, error: updateError } = await supabase
         .from('evolution_instances')
         .update({
@@ -684,68 +278,38 @@ Deno.serve(async (req) => {
           instance_status: 'connecting',
           qr_code: qrCodeBase64,
           webhook_url: webhookUrl,
-          last_qr_update: new Date().toISOString(),
+          last_qr_update: now,
         })
-        .eq('id', dbInstance.id)
+        .eq('id', currentInstance.id)
         .select()
         .single();
 
-      if (updateError) {
-        console.error('[create-evolution-instance] ❌ Database update error:', updateError);
-        throw updateError;
-      }
-
-      console.log(`[create-evolution-instance] ✅ Instance updated - ready to scan!`);
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          instance: updatedInstance,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    } else {
-      // Insert new instance
-      const { data: newInstance, error: insertError } = await supabase
-        .from('evolution_instances')
-        .insert({
-          user_id: user.id,
-          instance_name: instanceName,
-          instance_token: apiGeneratedToken,
-          instance_status: 'connecting',
-          qr_code: qrCodeBase64,
-          webhook_url: webhookUrl,
-          last_qr_update: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        console.error('[create-evolution-instance] ❌ Database insert error:', insertError);
-        throw insertError;
-      }
-
-      console.log(`[create-evolution-instance] ✅ Instance created - ready to scan!`);
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          instance: newInstance,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      if (updateError) throw updateError;
+      console.log('[create-evolution-instance] Instance updated and ready');
+      return new Response(JSON.stringify({ success: true, instance: updatedInstance }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
+
+    const { data: newInstance, error: insertError } = await supabase
+      .from('evolution_instances')
+      .insert({
+        user_id: user.id,
+        instance_name: instanceName,
+        instance_token: apiGeneratedToken,
+        instance_status: 'connecting',
+        qr_code: qrCodeBase64,
+        webhook_url: webhookUrl,
+        last_qr_update: now,
+      })
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+    console.log('[create-evolution-instance] Instance created and ready');
+    return new Response(JSON.stringify({ success: true, instance: newInstance }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   } catch (error) {
     console.error('[create-evolution-instance] Error:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
-    );
+    const message = error instanceof Error ? error.message : 'Unknown error';
+
+    return new Response(JSON.stringify({ success: false, error: message }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
